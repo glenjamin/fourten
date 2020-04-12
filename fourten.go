@@ -7,8 +7,9 @@ import (
 )
 
 type Client struct {
+	Request *http.Request
+
 	httpClient *http.Client
-	Request    *http.Request
 }
 
 type Option func(*Client)
@@ -25,6 +26,20 @@ func New(opts ...Option) *Client {
 		opt(c)
 	}
 	return c
+}
+
+func (c *Client) Refine(opts ...Option) *Client {
+	new := &Client{
+		httpClient: c.httpClient,
+		Request: &http.Request{
+			URL:    c.Request.URL.ResolveReference(&url.URL{}),
+			Header: c.Request.Header.Clone(),
+		},
+	}
+	for _, opt := range opts {
+		opt(new)
+	}
+	return new
 }
 
 func BaseURL(base string) Option {

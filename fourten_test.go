@@ -21,12 +21,12 @@ import (
 func TestSimpleHappyPaths(t *testing.T) {
 	server := NewServer()
 	defer server.Close()
-	ctx := context.Background()
-
 	server.Response = StubResponse{
 		Status: 200,
 		Body:   "PONG",
 	}
+
+	ctx := context.Background()
 
 	t.Run("Can request absolute URLs", func(t *testing.T) {
 		client := fourten.New()
@@ -52,6 +52,7 @@ func TestSimpleHappyPaths(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.SetHeader("Wibble", "Wobble"),
 		)
+
 		_, err := client.GET(ctx, "/ping")
 		assert.NilError(t, err)
 
@@ -62,11 +63,34 @@ func TestSimpleHappyPaths(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.Bearer("ipromisetopaythebearer"),
 		)
+
 		_, err := client.GET(ctx, "/ping")
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Authorization"), "Bearer ipromisetopaythebearer"))
 	})
+}
+
+func TestRefine(t *testing.T) {
+	server := NewServer()
+	defer server.Close()
+	server.Response = StubResponse{
+		Status: 200,
+		Body:   "PONG",
+	}
+
+	ctx := context.Background()
+
+	clientA := fourten.New(fourten.BaseURL(server.URL + "/server-a/"))
+	clientB := clientA.Refine(fourten.BaseURL(server.URL + "/server-b/"))
+
+	_, err := clientA.GET(ctx, "ping")
+	assert.NilError(t, err)
+	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/server-a/ping"))
+
+	_, err = clientB.GET(ctx, "ping")
+	assert.NilError(t, err)
+	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/server-b/ping"))
 }
 
 func TestErrorHandling(t *testing.T) {
