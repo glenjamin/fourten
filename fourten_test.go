@@ -30,12 +30,22 @@ func TestSimpleHappyPath(t *testing.T) {
 	res, err := client.GET(ctx, "/ping")
 	assert.NilError(t, err)
 
+	assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
+	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/ping"))
+	assertResponse(t, res, server.Response)
+}
+
+func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
 	assert.Check(t, res != nil)
-	assert.Check(t, cmp.Equal(res.StatusCode, 200))
+	assert.Check(t, cmp.Equal(res.StatusCode, want.Status))
+
+	for header, values := range want.Headers {
+		assert.Check(t, cmp.DeepEqual(res.Header.Values(header), values))
+	}
 
 	body, err := ioutil.ReadAll(res.Body)
 	assert.NilError(t, err)
-	assert.Check(t, cmp.Equal(string(body), "PONG"))
+	assert.Check(t, cmp.Equal(string(body), want.Body))
 }
 
 type RecordingServer struct {
