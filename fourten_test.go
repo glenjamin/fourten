@@ -16,6 +16,8 @@ import (
 	"github.com/glenjamin/fourten"
 )
 
+// TODO re-group tests into feature-sets
+
 func TestSimpleHappyPaths(t *testing.T) {
 	server := NewServer()
 	defer server.Close()
@@ -44,6 +46,26 @@ func TestSimpleHappyPaths(t *testing.T) {
 		assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
 		assert.Check(t, cmp.Equal(server.Request.URL.Path, "/ping"))
 		assertResponse(t, res, server.Response)
+	})
+
+	t.Run("Can set headers", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.SetHeader("Wibble", "Wobble"),
+		)
+		_, err := client.GET(ctx, "/ping")
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Wibble"), "Wobble"))
+	})
+
+	t.Run("Can set bearer tokens", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.Bearer("ipromisetopaythebearer"),
+		)
+		_, err := client.GET(ctx, "/ping")
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Authorization"), "Bearer ipromisetopaythebearer"))
 	})
 }
 

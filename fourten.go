@@ -37,6 +37,15 @@ func BaseURL(base string) Option {
 	}
 }
 
+func SetHeader(header, value string) Option {
+	return func(c *Client) {
+		c.Request.Header.Set(header, value)
+	}
+}
+func Bearer(token string) Option {
+	return SetHeader("Authorization", "Bearer "+token)
+}
+
 func (c *Client) GET(ctx context.Context, target string) (*http.Response, error) {
 	targetURL, err := url.Parse(target)
 	if err != nil {
