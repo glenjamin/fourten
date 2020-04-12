@@ -8,19 +8,23 @@ import (
 
 type Client struct {
 	httpClient *http.Client
-	baseURL    url.URL
+	Request    *http.Request
 }
 
 type Option func(*Client)
 
-func New(opts ...Option) Client {
+func New(opts ...Option) *Client {
 	c := &Client{
 		httpClient: &http.Client{},
+		Request: &http.Request{
+			URL:    &url.URL{},
+			Header: make(http.Header),
+		},
 	}
 	for _, opt := range opts {
 		opt(c)
 	}
-	return *c
+	return c
 }
 
 func BaseURL(base string) Option {
@@ -29,18 +33,22 @@ func BaseURL(base string) Option {
 		panic(err)
 	}
 	return func(c *Client) {
-		c.baseURL = *u
+		c.Request.URL = u
 	}
 }
 
-func (c *Client) GET(ctx context.Context, path string) (*http.Response, error) {
-	target := c.baseURL.ResolveReference(&url.URL{Path: path}).String()
-
-	// TODO: we can probably eliminate this error condition by making the request ourselves
-	req, err := http.NewRequestWithContext(ctx, "GET", target, nil)
+func (c *Client) GET(ctx context.Context, target string) (*http.Response, error) {
+	targetURL, err := url.Parse(target)
 	if err != nil {
 		return nil, err
 	}
+
+	req := &http.Request{
+		Method: "GET",
+		URL:    c.Request.URL.ResolveReference(targetURL),
+		Header: c.Request.Header.Clone(),
+	}
+	req = req.WithContext(ctx)
 
 	res, err := c.httpClient.Do(req)
 	if err != nil {

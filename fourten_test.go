@@ -16,7 +16,7 @@ import (
 	"github.com/glenjamin/fourten"
 )
 
-func TestSimpleHappyPath(t *testing.T) {
+func TestSimpleHappyPaths(t *testing.T) {
 	server := NewServer()
 	defer server.Close()
 	ctx := context.Background()
@@ -26,13 +26,32 @@ func TestSimpleHappyPath(t *testing.T) {
 		Body:   "PONG",
 	}
 
-	client := fourten.New(fourten.BaseURL(server.URL))
-	res, err := client.GET(ctx, "/ping")
-	assert.NilError(t, err)
+	t.Run("Can request absolute URLs", func(t *testing.T) {
+		client := fourten.New()
+		res, err := client.GET(ctx, server.URL+"/ping")
+		assert.NilError(t, err)
 
-	assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
-	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/ping"))
-	assertResponse(t, res, server.Response)
+		assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
+		assert.Check(t, cmp.Equal(server.Request.URL.Path, "/ping"))
+		assertResponse(t, res, server.Response)
+	})
+
+	t.Run("Can request URLs relative to a base URL", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL))
+		res, err := client.GET(ctx, "/ping")
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
+		assert.Check(t, cmp.Equal(server.Request.URL.Path, "/ping"))
+		assertResponse(t, res, server.Response)
+	})
+}
+
+func TestErrorHandling(t *testing.T) {
+	t.Run("errors on invalid URL", func(t *testing.T) {
+		_, err := fourten.New().GET(context.Background(), "nope://")
+		assert.ErrorContains(t, err, "unsupported")
+	})
 }
 
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
@@ -76,5 +95,5 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.WriteHeader(s.Response.Status)
-	io.Copy(w, bytes.NewBufferString(s.Response.Body))
+	_, _ = io.Copy(w, bytes.NewBufferString(s.Response.Body))
 }
