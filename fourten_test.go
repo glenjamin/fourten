@@ -9,23 +9,24 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"gotest.tools/v3/assert/cmp"
-
 	"gotest.tools/v3/assert"
+	"gotest.tools/v3/assert/cmp"
 
 	"github.com/glenjamin/fourten"
 )
 
+var server *RecordingServer
+
+func init() {
+	server = NewServer(StubResponse{
+		Status: 200,
+		Body:   "PONG",
+	})
+}
+
 // TODO re-group tests into feature-sets
 
 func TestSimpleHappyPaths(t *testing.T) {
-	server := NewServer()
-	defer server.Close()
-	server.Response = StubResponse{
-		Status: 200,
-		Body:   "PONG",
-	}
-
 	ctx := context.Background()
 
 	t.Run("Can request absolute URLs", func(t *testing.T) {
@@ -50,8 +51,7 @@ func TestSimpleHappyPaths(t *testing.T) {
 
 	t.Run("Can set headers", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
-			fourten.SetHeader("Wibble", "Wobble"),
-		)
+			fourten.SetHeader("Wibble", "Wobble"))
 
 		_, err := client.GET(ctx, "/ping")
 		assert.NilError(t, err)
@@ -61,8 +61,7 @@ func TestSimpleHappyPaths(t *testing.T) {
 
 	t.Run("Can set bearer tokens", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
-			fourten.Bearer("ipromisetopaythebearer"),
-		)
+			fourten.Bearer("ipromisetopaythebearer"))
 
 		_, err := client.GET(ctx, "/ping")
 		assert.NilError(t, err)
@@ -71,14 +70,45 @@ func TestSimpleHappyPaths(t *testing.T) {
 	})
 }
 
-func TestRefine(t *testing.T) {
-	server := NewServer()
-	defer server.Close()
-	server.Response = StubResponse{
-		Status: 200,
-		Body:   "PONG",
-	}
+func TestDecoding(t *testing.T) {
+	ctx := context.Background()
 
+	t.Run("Refuses to decode unless configured to", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL))
+
+		body := make(map[string]interface{})
+		_, err := client.GETDecoded(ctx, "/data", &body)
+		assert.ErrorContains(t, err, "no decoder")
+	})
+
+	t.Run("Requests and Decodes JSON into provided pointer", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+		server.Response.Body = `{"json": "made easy"}`
+
+		body := make(map[string]interface{})
+		_, err := client.GETDecoded(ctx, "/data", &body)
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Accept"), "application/json"))
+		assert.Check(t, cmp.DeepEqual(body, map[string]interface{}{"json": "made easy"}))
+	})
+
+	t.Run("Won't decode JSON without a content type", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Body = `{"json": {"made": "easy"}}`
+
+		body := make(map[string]interface{})
+		_, err := client.GETDecoded(ctx, "/data", &body)
+		assert.ErrorContains(t, err, "expected JSON content-type")
+	})
+}
+
+func TestRefine(t *testing.T) {
 	ctx := context.Background()
 
 	clientA := fourten.New(fourten.BaseURL(server.URL + "/server-a/"))
@@ -118,15 +148,21 @@ type RecordingServer struct {
 	Request  http.Request
 	Response StubResponse
 	Close    func()
+
+	defaultResponse StubResponse
 }
 type StubResponse struct {
 	Status  int
-	Headers map[string][]string
+	Headers Headers
 	Body    string
 }
+type Headers = map[string][]string
 
-func NewServer() *RecordingServer {
-	recording := &RecordingServer{}
+func NewServer(defaultResponse StubResponse) *RecordingServer {
+	recording := &RecordingServer{
+		Response:        defaultResponse,
+		defaultResponse: defaultResponse,
+	}
 	server := httptest.NewServer(recording)
 	recording.URL = server.URL
 	recording.Close = server.Close
@@ -142,4 +178,7 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(s.Response.Status)
 	_, _ = io.Copy(w, bytes.NewBufferString(s.Response.Body))
+
+	// Reset stub after each call
+	s.Response = s.defaultResponse
 }

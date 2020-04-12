@@ -22,7 +22,7 @@ An opinionated Go HTTP Client.
 // Setup a client with defaults you care about
 client := fourten.New(
     fourten.BaseURL("https://reqres.in/api"),
-    fourten.Decode(fourten.JSON),
+    fourten.DecodeJSON,
     fourten.SetHeader("Authorization", "Bearer 1234567890"),
     fourten.Retry(3),
     fourten.ResponseTimeout(time.Second),
@@ -42,7 +42,7 @@ ctx := context.Background()
 // Make GET requests with response decoding
 {
     json := make(map[string]interace{})
-    res, err := client.GET(ctx, "/items", &json)
+    res, err := client.GETDecoded(ctx, "/items", &json)
     println(err, res, json)
 }
 
@@ -57,7 +57,7 @@ refined := client.Refine(
 {
     input = map[string]interface{}{"abc": "def"}
     output := make(map[string]interace{})
-    res, err := refined.POST(ctx, "/items", input, &output)
+    res, err := refined.POSTDecoded(ctx, "/items", input, &output)
     println(err, res, output)
 }
 ```
