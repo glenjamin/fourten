@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"io/ioutil"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -117,6 +118,18 @@ func TestDecoding(t *testing.T) {
 		_, err := client.GETDecoded(ctx, "/data", &body)
 		assert.ErrorContains(t, err, "expected JSON content-type")
 	})
+
+	t.Run("Handles attempts to decode invalid data cleanly", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+		server.Response.Body = `{"json": {"made"`
+
+		body := make(map[string]interface{})
+		_, err := client.GETDecoded(ctx, "/data", &body)
+		assert.ErrorContains(t, err, "unexpected EOF")
+	})
 }
 
 func TestEncoding(t *testing.T) {
@@ -174,6 +187,15 @@ func TestEncoding(t *testing.T) {
 		requestData := make(map[string]interface{})
 		assert.NilError(t, json.Unmarshal(requestBody, &requestData))
 		assert.DeepEqual(t, requestData, input)
+	})
+
+	t.Run("Handles attempts to encode invalid data cleanly", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.EncodeJSON)
+
+		input := math.Inf(1)
+		_, err := client.POST(ctx, "/data", &input)
+		assert.ErrorContains(t, err, "unsupported value")
 	})
 }
 
