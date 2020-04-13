@@ -25,7 +25,7 @@ type Client struct {
 type Option func(*Client)
 
 // Encoder is used to populate requests from input, the return value is compatible with http.Request.GetBody
-type Encoder func(input interface{}) func() (io.ReadCloser, error)
+type Encoder func(input interface{}) (length int64, getBody func() (io.ReadCloser, error))
 
 // Decoder is used to populate target from the reader
 type Decoder func(contentType string, r io.Reader, target interface{}) error
@@ -84,11 +84,11 @@ func EncodeJSON(c *Client) {
 	SetHeader("Content-Type", "application/json; charset=utf-8")(c)
 	c.encoder = jsonEncoder
 }
-func jsonEncoder(input interface{}) func() (io.ReadCloser, error) {
+func jsonEncoder(input interface{}) (int64, func() (io.ReadCloser, error)) {
 	// A little sleight of hand to ensure we only encode once, regardless of how many readers are needed
 	b := &bytes.Buffer{}
 	err := json.NewEncoder(b).Encode(input)
-	return func() (io.ReadCloser, error) {
+	return int64(b.Len()), func() (io.ReadCloser, error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to encode: %w", err)
 		}
@@ -122,7 +122,7 @@ func (c *Client) GET(ctx context.Context, target string) (*http.Response, error)
 }
 
 func (c *Client) POST(ctx context.Context, target string, input interface{}) (*http.Response, error) {
-	if c.encoder == nil {
+	if input != nil && c.encoder == nil {
 		return nil, errors.New("input requested but no encoder configured")
 	}
 
@@ -131,7 +131,13 @@ func (c *Client) POST(ctx context.Context, target string, input interface{}) (*h
 		return nil, err
 	}
 
-	req.GetBody = c.encoder(input)
+	if input == nil {
+		req.ContentLength = 0
+		req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
+	} else {
+		req.ContentLength, req.GetBody = c.encoder(input)
+	}
+
 	req.Body, err = req.GetBody()
 	if err != nil {
 		return nil, err

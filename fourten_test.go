@@ -128,6 +128,33 @@ func TestEncoding(t *testing.T) {
 		assert.ErrorContains(t, err, "no encoder")
 	})
 
+	t.Run("Can POST nil even if not configured", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL))
+
+		_, err := client.POST(ctx, "/data", nil)
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Length"), "0"))
+
+		requestBody, err := ioutil.ReadAll(server.Request.Body)
+		assert.NilError(t, err)
+		assert.DeepEqual(t, requestBody, []byte{})
+	})
+
+	t.Run("Can POST nil when configured", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL), fourten.EncodeJSON)
+
+		_, err := client.POST(ctx, "/data", nil)
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Type"), "application/json; charset=utf-8"))
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Length"), "0"))
+
+		requestBody, err := ioutil.ReadAll(server.Request.Body)
+		assert.NilError(t, err)
+		assert.DeepEqual(t, requestBody, []byte{})
+	})
+
 	t.Run("Can POST encoded JSON", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.EncodeJSON)
@@ -140,6 +167,7 @@ func TestEncoding(t *testing.T) {
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Type"), "application/json; charset=utf-8"))
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Length"), "36"))
 
 		requestBody, err := ioutil.ReadAll(server.Request.Body)
 		assert.NilError(t, err)
