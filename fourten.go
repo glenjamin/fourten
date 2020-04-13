@@ -84,6 +84,8 @@ func jsonDecoder(contentType string, r io.Reader, target interface{}) error {
 	return nil
 }
 
+// GET makes an HTTP request to the supplied target.
+// It is the responsibility of the caller to close the response body
 func (c *Client) GET(ctx context.Context, target string) (*http.Response, error) {
 	targetURL, err := url.Parse(target)
 	if err != nil {
