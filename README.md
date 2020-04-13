@@ -64,6 +64,17 @@ refined := client.Refine(
 
 ## Docs
 
+TODO
+
+## TODO
+
+* Timeouts (use context deadline)
+* PUT/DELETE etc
+* HTTP Errors
+* Retries
+* O11y
+* Docs
+
 ## License
 
 MIT
