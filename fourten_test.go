@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
@@ -354,6 +355,16 @@ func TestRefine(t *testing.T) {
 	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/server-b/ping"))
 }
 
+func TestTimeouts(t *testing.T) {
+	client := fourten.New(fourten.BaseURL(server.URL),
+		fourten.RequestTimeout(time.Nanosecond))
+
+	server.Delay = time.Millisecond
+
+	_, err := client.GET(ctx, "/request")
+	assert.ErrorContains(t, err, "deadline exceeded")
+}
+
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
 	assert.Check(t, res != nil)
 	assert.Check(t, cmp.Equal(res.StatusCode, want.Status))
@@ -369,6 +380,7 @@ func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
 
 type RecordingServer struct {
 	URL      string
+	Delay    time.Duration
 	Request  http.Request
 	Response StubResponse
 	Close    func()
@@ -401,6 +413,10 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Request.Body = ioutil.NopCloser(bytes.NewReader(body))
 
+	if s.Delay != 0 {
+		time.Sleep(s.Delay)
+	}
+
 	h := w.Header()
 	for header, values := range s.Response.Headers {
 		for _, value := range values {
@@ -411,5 +427,6 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = io.Copy(w, bytes.NewBufferString(s.Response.Body))
 
 	// Reset stub after each call
+	s.Delay = 0
 	s.Response = s.defaultResponse
 }

@@ -26,12 +26,13 @@ client := fourten.New(
     fourten.SetHeader("Authorization", "Bearer 1234567890"),
     fourten.Retry(3),
     fourten.ResponseTimeout(time.Second),
-    fourten.Observe(func(req fourten.Request) fourten.ResponseObserver {
+    fourten.Observe(func(info *fourten.ReqInfo, req *http.Request) fourten.ResponseObserver {
         start := time.Now()
-        return func(res http.Response, err error) {
-            metrics.Timer(req.Name, time.Since(start), map[string]string{
+        return func(res *http.Response, err error) {
+            metrics.Timer("http.request", time.Since(start), map[string]string{
                 "error": String(err != nil),
                 "status": res.StatusCode,
+                "route": info.Target,
             })
         }
     }),
@@ -48,9 +49,8 @@ ctx := context.Background()
 
 // Refine the client's defaults as needed
 refined := client.Refine(
-    fourten.DontRetry(),
+    fourten.DontRetry,
     fourten.EncodeJSON,
-    fourten.Named("refined"),
 )
 
 // Make POST requests with request encoding and body decoding
@@ -60,6 +60,18 @@ refined := client.Refine(
     res, err := refined.POSTDecoded(ctx, "/items", input, &output)
     println(err, res, output)
 }
+
+// Override options per request too if you want
+{
+    res, err := client.POST(ctx, "/items/one-shot", nil, fourten.DontRetry)
+    println(err, res, json)
+}
+
+// URL parameters can be filled in too
+{
+    res, err := client.POST(ctx, "/items/:item-id", nil, fourten.Param("item-id", "123456"))
+    println(err, res, json)
+}
 ```
 
 ## Docs
@@ -68,9 +80,9 @@ TODO
 
 ## TODO
 
-* Timeouts (use context deadline)
-* PUT/DELETE etc
 * HTTP Errors
+* per-request options
+* url params
 * Retries
 * O11y
 * Docs

@@ -11,11 +11,13 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 type Client struct {
 	Request *http.Request
 
+	timeout time.Duration
 	encoder Encoder
 	decoder Decoder
 
@@ -36,6 +38,8 @@ func New(opts ...Option) *Client {
 			URL:    &url.URL{},
 			Header: make(http.Header),
 		},
+
+		timeout:    time.Second,
 		httpClient: &http.Client{},
 	}
 	for _, opt := range opts {
@@ -51,6 +55,7 @@ func (c *Client) Refine(opts ...Option) *Client {
 			Header: c.Request.Header.Clone(),
 		},
 
+		timeout:    c.timeout,
 		encoder:    c.encoder,
 		decoder:    c.decoder,
 		httpClient: c.httpClient,
@@ -59,6 +64,12 @@ func (c *Client) Refine(opts ...Option) *Client {
 		opt(new)
 	}
 	return new
+}
+
+func RequestTimeout(d time.Duration) Option {
+	return func(c *Client) {
+		c.timeout = d
+	}
 }
 
 func BaseURL(base string) Option {
@@ -156,10 +167,14 @@ func (c *Client) Send(ctx context.Context, method, target string, input interfac
 	return c.SendDecoded(ctx, method, target, input, nil)
 }
 func (c *Client) SendDecoded(ctx context.Context, method, target string, input, output interface{}) (*http.Response, error) {
-	req, err := c.buildRequest(ctx, method, target)
+	req, err := c.buildRequest(method, target)
 	if err != nil {
 		return nil, err
 	}
+
+	ctx, cancel := context.WithTimeout(ctx, c.timeout)
+	defer cancel()
+	req = req.WithContext(ctx)
 
 	err = c.setupEncoding(req, input)
 	if err != nil {
@@ -187,7 +202,7 @@ func (c *Client) SendDecoded(ctx context.Context, method, target string, input, 
 	return res, nil
 }
 
-func (c *Client) buildRequest(ctx context.Context, method, target string) (*http.Request, error) {
+func (c *Client) buildRequest(method, target string) (*http.Request, error) {
 	targetURL, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -199,7 +214,7 @@ func (c *Client) buildRequest(ctx context.Context, method, target string) (*http
 		Header: c.Request.Header.Clone(),
 	}
 
-	return req.WithContext(ctx), nil
+	return req, nil
 }
 
 func (c *Client) setupEncoding(req *http.Request, input interface{}) error {
