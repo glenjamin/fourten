@@ -3,6 +3,7 @@ package fourten_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -118,6 +119,36 @@ func TestDecoding(t *testing.T) {
 	})
 }
 
+func TestEncoding(t *testing.T) {
+	t.Run("Refuses to encode unless configured to", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL))
+
+		input := map[string]interface{}{}
+		_, err := client.POST(ctx, "/data", &input)
+		assert.ErrorContains(t, err, "no encoder")
+	})
+
+	t.Run("Can POST encoded JSON", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.EncodeJSON)
+
+		input := map[string]interface{}{
+			"request": "params",
+			"of_json": true,
+		}
+		_, err := client.POST(ctx, "/data", &input)
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Type"), "application/json; charset=utf-8"))
+
+		body, err := ioutil.ReadAll(server.Request.Body)
+		assert.NilError(t, err)
+		requestBody := make(map[string]interface{})
+		assert.NilError(t, json.Unmarshal(body, &requestBody))
+		assert.DeepEqual(t, requestBody, input)
+	})
+}
+
 func TestRefine(t *testing.T) {
 	clientA := fourten.New(fourten.BaseURL(server.URL + "/server-a/"))
 	clientB := clientA.Refine(fourten.BaseURL(server.URL + "/server-b/"))
@@ -170,7 +201,14 @@ func NewServer(defaultResponse StubResponse) *RecordingServer {
 	return recording
 }
 func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Copy the request, preserving the body
 	s.Request = *r
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		panic(err)
+	}
+	s.Request.Body = ioutil.NopCloser(bytes.NewReader(body))
+
 	h := w.Header()
 	for header, values := range s.Response.Headers {
 		for _, value := range values {

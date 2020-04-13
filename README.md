@@ -49,7 +49,7 @@ ctx := context.Background()
 // Refine the client's defaults as needed
 refined := client.Refine(
     fourten.DontRetry(),
-    fourten.Encode(fourten.JSON),
+    fourten.EncodeJSON,
     fourten.Named("refined"),
 )
 
