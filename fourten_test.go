@@ -15,20 +15,18 @@ import (
 	"github.com/glenjamin/fourten"
 )
 
+var ctx context.Context
 var server *RecordingServer
 
 func init() {
+	ctx = context.Background()
 	server = NewServer(StubResponse{
 		Status: 200,
 		Body:   "PONG",
 	})
 }
 
-// TODO re-group tests into feature-sets
-
-func TestSimpleHappyPaths(t *testing.T) {
-	ctx := context.Background()
-
+func TestURLResolution(t *testing.T) {
 	t.Run("Can request absolute URLs", func(t *testing.T) {
 		client := fourten.New()
 		res, err := client.GET(ctx, server.URL+"/ping")
@@ -49,6 +47,20 @@ func TestSimpleHappyPaths(t *testing.T) {
 		assertResponse(t, res, server.Response)
 	})
 
+	t.Run("errors on invalid URL", func(t *testing.T) {
+		_, err := fourten.New().GET(context.Background(), ":::")
+		assert.ErrorContains(t, err, "parse")
+	})
+
+	t.Run("panics on invalid base URL", func(t *testing.T) {
+		// panic because fitting an error into the Option signature would be a pain
+		assert.Assert(t, cmp.Panics(func() {
+			fourten.New(fourten.BaseURL(":/:/:"))
+		}))
+	})
+}
+
+func TestHeaders(t *testing.T) {
 	t.Run("Can set headers", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.SetHeader("Wibble", "Wobble"))
@@ -71,8 +83,6 @@ func TestSimpleHappyPaths(t *testing.T) {
 }
 
 func TestDecoding(t *testing.T) {
-	ctx := context.Background()
-
 	t.Run("Refuses to decode unless configured to", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL))
 
@@ -109,8 +119,6 @@ func TestDecoding(t *testing.T) {
 }
 
 func TestRefine(t *testing.T) {
-	ctx := context.Background()
-
 	clientA := fourten.New(fourten.BaseURL(server.URL + "/server-a/"))
 	clientB := clientA.Refine(fourten.BaseURL(server.URL + "/server-b/"))
 
@@ -121,13 +129,6 @@ func TestRefine(t *testing.T) {
 	_, err = clientB.GET(ctx, "ping")
 	assert.NilError(t, err)
 	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/server-b/ping"))
-}
-
-func TestErrorHandling(t *testing.T) {
-	t.Run("errors on invalid URL", func(t *testing.T) {
-		_, err := fourten.New().GET(context.Background(), "nope://")
-		assert.ErrorContains(t, err, "unsupported")
-	})
 }
 
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
