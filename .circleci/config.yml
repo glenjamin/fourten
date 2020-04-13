@@ -1,0 +1,22 @@
+version: 2.1
+
+workflows:
+  main:
+    jobs:
+      - test
+
+jobs:
+  test:
+    docker:
+      - image: cimg/go:1.14
+    steps:
+      - checkout
+      - run:
+          name: run tests
+          command: |
+            mkdir -p test-results/
+            gotestsum --junitfile test-results/junit.xml -- -race ./...
+      - store_artifacts:
+          path: test-results
+      - store_test_results:
+          path: test-results
