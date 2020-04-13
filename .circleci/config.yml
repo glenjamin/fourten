@@ -12,6 +12,9 @@ jobs:
     steps:
       - checkout
       - run:
+          name: download deps
+          command: go mod download
+      - run:
           name: run tests
           command: |
             mkdir -p test-results/
