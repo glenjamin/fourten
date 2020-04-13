@@ -186,6 +186,8 @@ func (c *Client) SendDecoded(ctx context.Context, method, target string, input, 
 		return nil, err
 	}
 
+	httpErr := coerceHTTPError(res, err)
+
 	// non-nil output means we try output decoding
 	if output != nil {
 		// when we handle output, we close body - otherwise it's up to the caller
@@ -199,7 +201,7 @@ func (c *Client) SendDecoded(ctx context.Context, method, target string, input, 
 		}
 	}
 
-	return res, nil
+	return res, httpErr
 }
 
 func (c *Client) buildRequest(method, target string) (*http.Request, error) {
@@ -231,4 +233,29 @@ func (c *Client) setupEncoding(req *http.Request, input interface{}) error {
 	var err error
 	req.Body, err = req.GetBody()
 	return err
+}
+
+func coerceHTTPError(res *http.Response, err error) error {
+	if err != nil {
+		return err
+	}
+	if res.StatusCode >= 300 {
+		return &HTTPError{res}
+	}
+	return nil
+}
+
+var ErrHTTP = fmt.Errorf("base HTTP error")
+
+type HTTPError struct {
+	Response *http.Response
+}
+
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP Status %d", e.Response.StatusCode)
+}
+
+// Is allows HTTPError to match errors.Is(fourten.ErrHTTP), potentially saving you a type cast
+func (e *HTTPError) Is(err error) bool {
+	return err == ErrHTTP
 }

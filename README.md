@@ -47,6 +47,12 @@ ctx := context.Background()
     println(err, res, json)
 }
 
+// HTTP Status codes are turned into errors
+{
+    res, err := client.GET(ctx, "/error") // 4xx, 5xx etc
+    errors.Is(err, fourten.ErrHTTP) // true
+}
+
 // Refine the client's defaults as needed
 refined := client.Refine(
     fourten.DontRetry,
@@ -85,6 +91,7 @@ TODO
 * url params
 * Retries
 * O11y
+* Specify Redirect behaviour?
 * Docs
 
 ## License
