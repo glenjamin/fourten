@@ -225,6 +225,122 @@ func TestEncodingAndDecoding(t *testing.T) {
 	})
 }
 
+func TestMethods(t *testing.T) {
+	client := fourten.New(fourten.BaseURL(server.URL), fourten.EncodeJSON, fourten.DecodeJSON)
+
+	t.Run("without bodies", func(t *testing.T) {
+		tests := []struct {
+			method string
+			fn     func(context.Context, string) (*http.Response, error)
+		}{
+			{"GET", client.GET},
+			{"HEAD", client.HEAD},
+			{"OPTIONS", client.OPTIONS},
+		}
+		for _, test := range tests {
+			t.Run(test.method, func(t *testing.T) {
+				res, err := test.fn(ctx, "/method/test")
+				assert.NilError(t, err)
+
+				assert.Check(t, cmp.Equal(server.Request.Method, test.method))
+				assert.Check(t, cmp.Equal(server.Request.URL.Path, "/method/test"))
+				assert.Check(t, cmp.Equal(res.StatusCode, 200))
+			})
+		}
+	})
+
+	t.Run("without bodies but with decoding", func(t *testing.T) {
+		tests := []struct {
+			method string
+			fn     func(context.Context, string, interface{}) (*http.Response, error)
+		}{
+			{"GET", client.GETDecoded},
+			{"OPTIONS", client.OPTIONSDecoded},
+		}
+		for _, test := range tests {
+			t.Run(test.method, func(t *testing.T) {
+				server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+				server.Response.Body = `{"some": "json"}`
+
+				output := make(map[string]interface{})
+				res, err := test.fn(ctx, "/method/test", &output)
+				assert.NilError(t, err)
+
+				assert.Check(t, cmp.Equal(server.Request.Method, test.method))
+				assert.Check(t, cmp.Equal(server.Request.URL.Path, "/method/test"))
+				assert.Check(t, cmp.Equal(res.StatusCode, 200))
+				assert.Check(t, cmp.DeepEqual(output, map[string]interface{}{"some": "json"}))
+			})
+		}
+	})
+
+	t.Run("with bodies", func(t *testing.T) {
+		tests := []struct {
+			method string
+			fn     func(context.Context, string, interface{}) (*http.Response, error)
+		}{
+			{"POST", client.POST},
+			{"PUT", client.PUT},
+			{"PATCH", client.PATCH},
+			{"DELETE", client.DELETE},
+			{"ANYTHING", func(ctx context.Context, s string, i interface{}) (*http.Response, error) {
+				return client.Send(ctx, "ANYTHING", s, i)
+			}},
+		}
+		for _, test := range tests {
+			t.Run(test.method, func(t *testing.T) {
+				server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+				server.Response.Body = `{"some": "json"}`
+
+				input := map[string]interface{}{"input": "json"}
+				res, err := test.fn(ctx, "/method/test", input)
+				assert.NilError(t, err)
+
+				assert.Check(t, cmp.Equal(server.Request.Method, test.method))
+				assert.Check(t, cmp.Equal(server.Request.URL.Path, "/method/test"))
+				requestBody, err := ioutil.ReadAll(server.Request.Body)
+				assert.NilError(t, err)
+				assert.Check(t, cmp.Equal(string(requestBody), `{"input":"json"}`+"\n"))
+				assert.Check(t, cmp.Equal(res.StatusCode, 200))
+			})
+		}
+	})
+
+	t.Run("with bodies and decoding", func(t *testing.T) {
+		tests := []struct {
+			method string
+			fn     func(context.Context, string, interface{}, interface{}) (*http.Response, error)
+		}{
+			{"POST", client.POSTDecoded},
+			{"PUT", client.PUTDecoded},
+			{"PATCH", client.PATCHDecoded},
+			{"DELETE", client.DELETEDecoded},
+			{"ANYTHING", func(ctx context.Context, s string, i, o interface{}) (*http.Response, error) {
+				return client.SendDecoded(ctx, "ANYTHING", s, i, o)
+			}},
+		}
+		for _, test := range tests {
+			t.Run(test.method, func(t *testing.T) {
+				server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+				server.Response.Body = `{"some": "json"}`
+
+				input := map[string]interface{}{"input": "json"}
+				output := make(map[string]interface{})
+				res, err := test.fn(ctx, "/method/test", input, &output)
+				assert.NilError(t, err)
+
+				assert.Check(t, cmp.Equal(server.Request.Method, test.method))
+				assert.Check(t, cmp.Equal(server.Request.URL.Path, "/method/test"))
+				requestBody, err := ioutil.ReadAll(server.Request.Body)
+				assert.NilError(t, err)
+				assert.Check(t, cmp.Equal(string(requestBody), `{"input":"json"}`+"\n"))
+				assert.Check(t, cmp.Equal(res.StatusCode, 200))
+				assert.Check(t, cmp.DeepEqual(output, map[string]interface{}{"some": "json"}))
+			})
+		}
+	})
+}
+
 func TestRefine(t *testing.T) {
 	clientA := fourten.New(fourten.BaseURL(server.URL + "/server-a/"))
 	clientB := clientA.Refine(fourten.BaseURL(server.URL + "/server-b/"))

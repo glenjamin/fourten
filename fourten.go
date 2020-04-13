@@ -113,70 +113,77 @@ func jsonDecoder(contentType string, r io.Reader, target interface{}) error {
 // GET makes an HTTP request to the supplied target.
 // It is the responsibility of the caller to close the response body
 func (c *Client) GET(ctx context.Context, target string) (*http.Response, error) {
-	req, err := c.buildRequest(ctx, "GET", target)
-	if err != nil {
-		return nil, err
-	}
-
-	return c.httpClient.Do(req)
+	return c.SendDecoded(ctx, "GET", target, nil, nil)
 }
-
+func (c *Client) HEAD(ctx context.Context, target string) (*http.Response, error) {
+	return c.SendDecoded(ctx, "HEAD", target, nil, nil)
+}
+func (c *Client) OPTIONS(ctx context.Context, target string) (*http.Response, error) {
+	return c.SendDecoded(ctx, "OPTIONS", target, nil, nil)
+}
 func (c *Client) POST(ctx context.Context, target string, input interface{}) (*http.Response, error) {
-	if input != nil && c.encoder == nil {
-		return nil, errors.New("input requested but no encoder configured")
-	}
-
-	req, err := c.buildRequest(ctx, "POST", target)
-	if err != nil {
-		return nil, err
-	}
-
-	if input == nil {
-		req.ContentLength = 0
-		req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
-	} else {
-		req.ContentLength, req.GetBody = c.encoder(input)
-	}
-
-	req.Body, err = req.GetBody()
-	if err != nil {
-		return nil, err
-	}
-
-	return c.httpClient.Do(req)
+	return c.SendDecoded(ctx, "POST", target, input, nil)
 }
-
+func (c *Client) PUT(ctx context.Context, target string, input interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, "PUT", target, input, nil)
+}
+func (c *Client) PATCH(ctx context.Context, target string, input interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, "PATCH", target, input, nil)
+}
+func (c *Client) DELETE(ctx context.Context, target string, input interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, "DELETE", target, input, nil)
+}
 func (c *Client) GETDecoded(ctx context.Context, target string, output interface{}) (*http.Response, error) {
-	if c.decoder == nil {
-		return nil, errors.New("output requested but no decoder configured")
-	}
-
-	res, err := c.GET(ctx, target)
-	if err != nil {
-		return nil, err
-	}
-	defer res.Body.Close()
-	err = c.decoder(res.Header.Get("content-type"), res.Body, output)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
+	return c.SendDecoded(ctx, "GET", target, nil, output)
+}
+func (c *Client) OPTIONSDecoded(ctx context.Context, target string, output interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, "OPTIONS", target, nil, output)
+}
+func (c *Client) POSTDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, "POST", target, input, output)
+}
+func (c *Client) PUTDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, "PUT", target, input, output)
+}
+func (c *Client) PATCHDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, "PATCH", target, input, output)
+}
+func (c *Client) DELETEDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, "DELETE", target, input, output)
 }
 
-func (c *Client) POSTDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	if c.decoder == nil {
-		return nil, errors.New("output requested but no decoder configured")
+func (c *Client) Send(ctx context.Context, method, target string, input interface{}) (*http.Response, error) {
+	return c.SendDecoded(ctx, method, target, input, nil)
+}
+func (c *Client) SendDecoded(ctx context.Context, method, target string, input, output interface{}) (*http.Response, error) {
+	req, err := c.buildRequest(ctx, method, target)
+	if err != nil {
+		return nil, err
 	}
 
-	res, err := c.POST(ctx, target, input)
+	err = c.setupEncoding(req, input)
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
-	err = c.decoder(res.Header.Get("content-type"), res.Body, output)
+
+	res, err := c.httpClient.Do(req)
 	if err != nil {
 		return nil, err
 	}
+
+	// non-nil output means we try output decoding
+	if output != nil {
+		// when we handle output, we close body - otherwise it's up to the caller
+		defer res.Body.Close()
+		if c.decoder == nil {
+			return nil, errors.New("output requested but no decoder configured")
+		}
+		err = c.decoder(res.Header.Get("content-type"), res.Body, output)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return res, nil
 }
 
@@ -193,4 +200,20 @@ func (c *Client) buildRequest(ctx context.Context, method, target string) (*http
 	}
 
 	return req.WithContext(ctx), nil
+}
+
+func (c *Client) setupEncoding(req *http.Request, input interface{}) error {
+	// non-nil input means we try input encoding
+	if input != nil {
+		if c.encoder == nil {
+			return errors.New("input requested but no encoder configured")
+		}
+		req.ContentLength, req.GetBody = c.encoder(input)
+	} else {
+		req.ContentLength = 0
+		req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
+	}
+	var err error
+	req.Body, err = req.GetBody()
+	return err
 }

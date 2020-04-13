@@ -72,7 +72,7 @@ TODO
 * PUT/DELETE etc
 * HTTP Errors
 * Retries
-* O11y  
+* O11y
 * Docs
 
 ## License
