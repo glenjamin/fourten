@@ -141,11 +141,37 @@ func TestEncoding(t *testing.T) {
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Type"), "application/json; charset=utf-8"))
 
-		body, err := ioutil.ReadAll(server.Request.Body)
+		requestBody, err := ioutil.ReadAll(server.Request.Body)
 		assert.NilError(t, err)
-		requestBody := make(map[string]interface{})
-		assert.NilError(t, json.Unmarshal(body, &requestBody))
-		assert.DeepEqual(t, requestBody, input)
+		requestData := make(map[string]interface{})
+		assert.NilError(t, json.Unmarshal(requestBody, &requestData))
+		assert.DeepEqual(t, requestData, input)
+	})
+}
+
+func TestEncodingAndDecoding(t *testing.T) {
+	t.Run("Can POST encoded JSON and decode the response", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.EncodeJSON, fourten.DecodeJSON)
+
+		server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+		server.Response.Body = `{"easy_as": 123}`
+
+		input := map[string]interface{}{
+			"request": "params",
+			"of_json": true,
+		}
+		output := make(map[string]interface{})
+		_, err := client.POSTDecoded(ctx, "/data", &input, &output)
+		assert.NilError(t, err)
+
+		requestBody, err := ioutil.ReadAll(server.Request.Body)
+		assert.NilError(t, err)
+		requestData := make(map[string]interface{})
+		assert.NilError(t, json.Unmarshal(requestBody, &requestData))
+		assert.Check(t, cmp.DeepEqual(requestData, input))
+
+		assert.Check(t, cmp.DeepEqual(output, map[string]interface{}{"easy_as": 123.0}))
 	})
 }
 

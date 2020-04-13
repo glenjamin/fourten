@@ -157,6 +157,23 @@ func (c *Client) GETDecoded(ctx context.Context, target string, output interface
 	return res, nil
 }
 
+func (c *Client) POSTDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	if c.decoder == nil {
+		return nil, errors.New("output requested but no decoder configured")
+	}
+
+	res, err := c.POST(ctx, target, input)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+	err = c.decoder(res.Header.Get("content-type"), res.Body, output)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
+}
+
 func (c *Client) buildRequest(ctx context.Context, method, target string) (*http.Request, error) {
 	targetURL, err := url.Parse(target)
 	if err != nil {
