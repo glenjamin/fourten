@@ -86,6 +86,7 @@ TODO
 
 ## TODO
 
+* test default timeout
 * HTTP Errors
 * per-request options
 * url params
