@@ -87,7 +87,7 @@ TODO
 ## TODO
 
 * test default timeout
-* HTTP Errors
+* HTTP Error response decoding - conditional something based on content type?
 * per-request options
 * url params
 * Retries
