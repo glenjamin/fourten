@@ -350,38 +350,47 @@ func TestStatusCodes(t *testing.T) {
 
 	// TODO: 2xx
 	// TODO: 301, 302, 303 Location
-	// TODO: 304 Not Modified
-	// TODO: error body decoding
 
-	errorCodes := []int{
-		300, 305, 306, 307, 308,
+	standardErrorCodes := []int{
+		300, 304, 305, 306, 307, 308,
 		400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410,
 		411, 412, 413, 414, 415, 416, 417, 418, 421, 422, 423,
 		424, 426, 428, 429, 431, 451,
 		500, 501, 502, 503, 504, 505, 506, 507, 508,
 	}
 
-	t.Run("HTTP Errors", func(t *testing.T) {
-		for _, code := range errorCodes {
-			t.Run(strconv.Itoa(code), func(t *testing.T) {
-				serverResponse := StubResponse{Status: code, Body: "ERROR"}
-				server.Response = serverResponse
+	for _, code := range standardErrorCodes {
+		t.Run(strconv.Itoa(code), func(t *testing.T) {
+			serverResponse := StubResponse{Status: code, Body: ""}
+			server.Response = serverResponse
 
-				res, err := client.GET(ctx, "/error")
+			res, err := client.GET(ctx, "/error")
 
-				// We get an error value
-				assert.ErrorContains(t, err, fmt.Sprintf("HTTP Status %d", code))
-				// But the normal response is still populated
-				assertResponse(t, res, serverResponse)
-				// The error can be compared against a sentinel
-				assert.Check(t, errors.Is(err, fourten.ErrHTTP))
-				// Or cast into the custom type
-				var httpErr *fourten.HTTPError
-				assert.Check(t, errors.As(err, &httpErr))
-				assert.Equal(t, httpErr.Response, res, "expected response to match error field")
-			})
-		}
-	})
+			// We get an error value
+			assert.ErrorContains(t, err, fmt.Sprintf("HTTP Status %d", code))
+			// But the normal response is still populated
+			assertResponse(t, res, serverResponse)
+			// The error can be compared against a sentinel
+			assert.Check(t, errors.Is(err, fourten.ErrHTTP))
+			// Or cast into the custom type
+			var httpErr *fourten.HTTPError
+			assert.Check(t, errors.As(err, &httpErr))
+			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+		})
+	}
+}
+
+func assertHTTPError(t *testing.T, err error, serverResponse StubResponse, res *http.Response) {
+	// We get an error value
+	assert.ErrorContains(t, err, fmt.Sprintf("HTTP Status %d", serverResponse.Status))
+	// But the normal response is still populated
+	assertResponse(t, res, serverResponse)
+	// The error can be compared against a sentinel
+	assert.Check(t, errors.Is(err, fourten.ErrHTTP))
+	// Or cast into the custom type
+	var httpErr *fourten.HTTPError
+	assert.Check(t, errors.As(err, &httpErr))
+	assert.Equal(t, httpErr.Response, res, "expected response to match error field")
 }
 
 func TestRefine(t *testing.T) {
