@@ -86,8 +86,10 @@ TODO
 
 ## TODO
 
-* test default timeout
-* HTTP Error response decoding - conditional something based on content type?
+* Test all HTTP status codes
+* HTTP Error response decoding
+    * HTTPError.Decode() method
+    * HTTPError.Body() method? (would require some read buffering if it's a decode fallback)
 * per-request options
 * url params
 * Retries
