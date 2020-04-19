@@ -90,6 +90,7 @@ TODO
 * HTTP Error response decoding
     * HTTPError.Decode() method
     * HTTPError.Body() method? (would require some read buffering if it's a decode fallback)
+* test that GetBody works
 * per-request options
 * url params
 * Retries

@@ -349,42 +349,75 @@ func TestStatusCodes(t *testing.T) {
 	client := fourten.New(fourten.BaseURL(server.URL))
 
 	// TODO: 2xx
-	// TODO: 301, 302, 303 Location
+
+	redirectErrorCodes := []int{301, 302, 303, 307, 308}
+	for _, code := range redirectErrorCodes {
+		t.Run("HTTP Status "+strconv.Itoa(code)+" follows Redirects", func(t *testing.T) {
+			serverResponse := StubResponse{
+				Status:  code,
+				Headers: Headers{"location": []string{"/redirected"}},
+			}
+			server.Response = serverResponse
+
+			res, err := client.GET(ctx, "/redirect")
+			assert.NilError(t, err)
+
+			assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
+			assert.Check(t, cmp.Equal(server.Request.URL.Path, "/redirected"))
+			assertResponse(t, res, StubResponse{Status: 200, Body: "PONG"})
+		})
+		t.Run("HTTP Status "+strconv.Itoa(code)+" follows Redirect loops until exhaustion", func(t *testing.T) {
+			serverResponse := StubResponse{
+				Status:  code,
+				Headers: Headers{"location": []string{"/loop"}},
+			}
+			server.Response = serverResponse
+			server.Sticky = true
+			defer func() { server.Sticky = false }()
+
+			res, err := client.GET(ctx, "/loop")
+			assert.Check(t, res == nil)
+			assert.ErrorContains(t, err, "stopped after 10 redirects")
+		})
+		t.Run("HTTP Status "+strconv.Itoa(code)+" can be told not to follow redirects", func(t *testing.T) {
+			nofollow := client.Refine(fourten.NoFollow)
+			serverResponse := StubResponse{
+				Status:  code,
+				Headers: Headers{"location": []string{"/redirected"}},
+				Body:    "redirect body",
+			}
+			server.Response = serverResponse
+
+			res, err := nofollow.GET(ctx, "/redirect")
+			assertHTTPError(t, err, res, serverResponse)
+		})
+	}
 
 	standardErrorCodes := []int{
-		300, 304, 305, 306, 307, 308,
+		300, 304, 305, 306,
 		400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410,
 		411, 412, 413, 414, 415, 416, 417, 418, 421, 422, 423,
 		424, 426, 428, 429, 431, 451,
-		500, 501, 502, 503, 504, 505, 506, 507, 508,
+		500, 501, 502, 503, 504, 505, 506, 507, 508, 510, 511,
 	}
 
 	for _, code := range standardErrorCodes {
-		t.Run(strconv.Itoa(code), func(t *testing.T) {
-			serverResponse := StubResponse{Status: code, Body: ""}
+		t.Run("HTTP Status "+strconv.Itoa(code), func(t *testing.T) {
+			serverResponse := StubResponse{Status: code}
 			server.Response = serverResponse
 
 			res, err := client.GET(ctx, "/error")
 
-			// We get an error value
-			assert.ErrorContains(t, err, fmt.Sprintf("HTTP Status %d", code))
-			// But the normal response is still populated
-			assertResponse(t, res, serverResponse)
-			// The error can be compared against a sentinel
-			assert.Check(t, errors.Is(err, fourten.ErrHTTP))
-			// Or cast into the custom type
-			var httpErr *fourten.HTTPError
-			assert.Check(t, errors.As(err, &httpErr))
-			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+			assertHTTPError(t, err, res, serverResponse)
 		})
 	}
 }
 
-func assertHTTPError(t *testing.T, err error, serverResponse StubResponse, res *http.Response) {
+func assertHTTPError(t *testing.T, err error, res *http.Response, expected StubResponse) {
 	// We get an error value
-	assert.ErrorContains(t, err, fmt.Sprintf("HTTP Status %d", serverResponse.Status))
+	assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", expected.Status)))
 	// But the normal response is still populated
-	assertResponse(t, res, serverResponse)
+	assertResponse(t, res, expected)
 	// The error can be compared against a sentinel
 	assert.Check(t, errors.Is(err, fourten.ErrHTTP))
 	// Or cast into the custom type
@@ -430,11 +463,14 @@ func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
 }
 
 type RecordingServer struct {
-	URL      string
-	Delay    time.Duration
-	Request  http.Request
+	URL   string
+	Delay time.Duration
+	// Request is the last request we received
+	Request http.Request
+	// Response is the next request we will return
 	Response StubResponse
-	Close    func()
+	// Sticky disables resetting the Response after each request
+	Sticky bool
 
 	defaultResponse StubResponse
 }
@@ -452,7 +488,6 @@ func NewServer(defaultResponse StubResponse) *RecordingServer {
 	}
 	server := httptest.NewServer(recording)
 	recording.URL = server.URL
-	recording.Close = server.Close
 	return recording
 }
 func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -477,7 +512,9 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(s.Response.Status)
 	_, _ = io.Copy(w, bytes.NewBufferString(s.Response.Body))
 
-	// Reset stub after each call
-	s.Delay = 0
-	s.Response = s.defaultResponse
+	// Reset stub after each call, unless we're being sticky
+	if !s.Sticky {
+		s.Delay = 0
+		s.Response = s.defaultResponse
+	}
 }

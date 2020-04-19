@@ -14,6 +14,7 @@ import (
 	"time"
 )
 
+// Client represents a usable HTTP client, it should be initialised with New()
 type Client struct {
 	Request *http.Request
 
@@ -24,6 +25,7 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// Option is used to apply changes to a Client in a neat manner
 type Option func(*Client)
 
 // Encoder is used to populate requests from input, the return value is compatible with http.Request.GetBody
@@ -32,6 +34,7 @@ type Encoder func(input interface{}) (length int64, getBody func() (io.ReadClose
 // Decoder is used to populate target from the reader
 type Decoder func(contentType string, r io.Reader, target interface{}) error
 
+// New constructs a Client, applying the specified options
 func New(opts ...Option) *Client {
 	c := &Client{
 		Request: &http.Request{
@@ -48,7 +51,10 @@ func New(opts ...Option) *Client {
 	return c
 }
 
+// Refine copies the current client, applying additional options as specified
 func (c *Client) Refine(opts ...Option) *Client {
+	httpClient := *c.httpClient
+
 	new := &Client{
 		Request: &http.Request{
 			URL:    c.Request.URL.ResolveReference(&url.URL{}),
@@ -58,7 +64,7 @@ func (c *Client) Refine(opts ...Option) *Client {
 		timeout:    c.timeout,
 		encoder:    c.encoder,
 		decoder:    c.decoder,
-		httpClient: c.httpClient,
+		httpClient: &httpClient,
 	}
 	for _, opt := range opts {
 		opt(new)
@@ -89,6 +95,13 @@ func SetHeader(header, value string) Option {
 }
 func Bearer(token string) Option {
 	return SetHeader("Authorization", "Bearer "+token)
+}
+
+func DontFollowRedirect(req *http.Request, via []*http.Request) error {
+	return http.ErrUseLastResponse
+}
+func NoFollow(c *Client) {
+	c.httpClient.CheckRedirect = DontFollowRedirect
 }
 
 func EncodeJSON(c *Client) {
