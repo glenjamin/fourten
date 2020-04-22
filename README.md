@@ -91,6 +91,7 @@ TODO
     * HTTPError.Decode() method
     * HTTPError.Body() method? (would require some read buffering if it's a decode fallback)
 * test that GetBody works
+* have a helper for IsHTTPCode(err)
 * per-request options
 * url params
 * Retries
