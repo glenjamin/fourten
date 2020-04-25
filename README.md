@@ -4,6 +4,18 @@
 
 An opinionated Go HTTP Client.
 
+This library aims to provide a high-level interface for performing HTTP requests with minimal ceremony,
+including key features for use in a production setting.
+
+It is my intention that you shouldn't need to drop down to lower level abstractions,
+but the libarary will allow you to if you so desire. 
+
+> Being abstract is something profoundly different from being vague …
+> The purpose of abstraction is not to be vague,
+> but to create a new semantic level in which one can be absolutely precise. 
+
+*Edsger W. Dijkstra*
+
 ## Goals
 
 - Be simple and easy to use
@@ -91,11 +103,13 @@ TODO
     * HTTPError.Decode() method
     * HTTPError.Body() method? (would require some read buffering if it's a decode fallback)
 * test that GetBody works
+* configure connection pooling
 * have a helper for IsHTTPCode(err)
 * per-request options
 * url params
 * Retries
 * O11y
+* fourten.DiscardBody
 * Docs
 
 ## License
