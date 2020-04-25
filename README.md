@@ -96,7 +96,6 @@ TODO
 * url params
 * Retries
 * O11y
-* Specify Redirect behaviour?
 * Docs
 
 ## License
