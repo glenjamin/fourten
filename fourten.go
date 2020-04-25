@@ -135,51 +135,30 @@ func jsonDecoder(contentType string, r io.Reader, target interface{}) error {
 }
 
 // GET makes an HTTP request to the supplied target.
-// It is the responsibility of the caller to close the response body
-func (c *Client) GET(ctx context.Context, target string) (*http.Response, error) {
-	return c.SendDecoded(ctx, "GET", target, nil, nil)
+// It is the responsibility of the caller to close the response body if output is nil
+func (c *Client) GET(ctx context.Context, target string, output interface{}) (*http.Response, error) {
+	return c.Call(ctx, "GET", target, nil, output)
 }
 func (c *Client) HEAD(ctx context.Context, target string) (*http.Response, error) {
-	return c.SendDecoded(ctx, "HEAD", target, nil, nil)
+	return c.Call(ctx, "HEAD", target, nil, nil)
 }
-func (c *Client) OPTIONS(ctx context.Context, target string) (*http.Response, error) {
-	return c.SendDecoded(ctx, "OPTIONS", target, nil, nil)
+func (c *Client) OPTIONS(ctx context.Context, target string, output interface{}) (*http.Response, error) {
+	return c.Call(ctx, "OPTIONS", target, nil, output)
 }
-func (c *Client) POST(ctx context.Context, target string, input interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "POST", target, input, nil)
+func (c *Client) POST(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	return c.Call(ctx, "POST", target, input, output)
 }
-func (c *Client) PUT(ctx context.Context, target string, input interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "PUT", target, input, nil)
+func (c *Client) PUT(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	return c.Call(ctx, "PUT", target, input, output)
 }
-func (c *Client) PATCH(ctx context.Context, target string, input interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "PATCH", target, input, nil)
+func (c *Client) PATCH(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	return c.Call(ctx, "PATCH", target, input, output)
 }
-func (c *Client) DELETE(ctx context.Context, target string, input interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "DELETE", target, input, nil)
-}
-func (c *Client) GETDecoded(ctx context.Context, target string, output interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "GET", target, nil, output)
-}
-func (c *Client) OPTIONSDecoded(ctx context.Context, target string, output interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "OPTIONS", target, nil, output)
-}
-func (c *Client) POSTDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "POST", target, input, output)
-}
-func (c *Client) PUTDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "PUT", target, input, output)
-}
-func (c *Client) PATCHDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "PATCH", target, input, output)
-}
-func (c *Client) DELETEDecoded(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, "DELETE", target, input, output)
+func (c *Client) DELETE(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
+	return c.Call(ctx, "DELETE", target, input, output)
 }
 
-func (c *Client) Send(ctx context.Context, method, target string, input interface{}) (*http.Response, error) {
-	return c.SendDecoded(ctx, method, target, input, nil)
-}
-func (c *Client) SendDecoded(ctx context.Context, method, target string, input, output interface{}) (*http.Response, error) {
+func (c *Client) Call(ctx context.Context, method, target string, input, output interface{}) (*http.Response, error) {
 	req, err := c.buildRequest(method, target)
 	if err != nil {
 		return nil, err

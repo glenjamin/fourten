@@ -43,13 +43,13 @@ ctx := context.Background()
 // Make GET requests with response decoding
 {
     json := make(map[string]interace{})
-    res, err := client.GETDecoded(ctx, "/items", &json)
+    res, err := client.GET(ctx, "/items", &json)
     println(err, res, json)
 }
 
 // HTTP Status codes are turned into errors
 {
-    res, err := client.GET(ctx, "/error") // 4xx, 5xx etc
+    res, err := client.GET(ctx, "/error", nil) // 4xx, 5xx etc
     errors.Is(err, fourten.ErrHTTP) // true
 }
 
@@ -63,19 +63,19 @@ refined := client.Refine(
 {
     input = map[string]interface{}{"abc": "def"}
     output := make(map[string]interace{})
-    res, err := refined.POSTDecoded(ctx, "/items", input, &output)
+    res, err := refined.POST(ctx, "/items", input, &output)
     println(err, res, output)
 }
 
 // Override options per request too if you want
 {
-    res, err := client.POST(ctx, "/items/one-shot", nil, fourten.DontRetry)
+    res, err := client.POST(ctx, "/items/one-shot", nil, nil, fourten.DontRetry)
     println(err, res, json)
 }
 
 // URL parameters can be filled in too
 {
-    res, err := client.POST(ctx, "/items/:item-id", nil, fourten.Param("item-id", "123456"))
+    res, err := client.POST(ctx, "/items/:item-id", nil, nil, fourten.Param("item-id", "123456"))
     println(err, res, json)
 }
 ```

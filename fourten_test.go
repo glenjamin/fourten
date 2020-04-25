@@ -35,7 +35,7 @@ func init() {
 func TestURLResolution(t *testing.T) {
 	t.Run("Can request absolute URLs", func(t *testing.T) {
 		client := fourten.New()
-		res, err := client.GET(ctx, server.URL+"/ping")
+		res, err := client.GET(ctx, server.URL+"/ping", nil)
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
@@ -45,7 +45,7 @@ func TestURLResolution(t *testing.T) {
 
 	t.Run("Can request URLs relative to a base URL", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL))
-		res, err := client.GET(ctx, "/ping")
+		res, err := client.GET(ctx, "/ping", nil)
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
@@ -54,7 +54,7 @@ func TestURLResolution(t *testing.T) {
 	})
 
 	t.Run("errors on invalid URL", func(t *testing.T) {
-		_, err := fourten.New().GET(context.Background(), ":::")
+		_, err := fourten.New().GET(ctx, ":::", nil)
 		assert.ErrorContains(t, err, "parse")
 	})
 
@@ -71,7 +71,7 @@ func TestHeaders(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.SetHeader("Wibble", "Wobble"))
 
-		_, err := client.GET(ctx, "/ping")
+		_, err := client.GET(ctx, "/ping", nil)
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Wibble"), "Wobble"))
@@ -81,7 +81,7 @@ func TestHeaders(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.Bearer("ipromisetopaythebearer"))
 
-		_, err := client.GET(ctx, "/ping")
+		_, err := client.GET(ctx, "/ping", nil)
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Authorization"), "Bearer ipromisetopaythebearer"))
@@ -93,7 +93,7 @@ func TestDecoding(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL))
 
 		body := make(map[string]interface{})
-		_, err := client.GETDecoded(ctx, "/data", &body)
+		_, err := client.GET(ctx, "/data", &body)
 		assert.ErrorContains(t, err, "no decoder")
 	})
 
@@ -105,7 +105,7 @@ func TestDecoding(t *testing.T) {
 		server.Response.Body = `{"json": "made easy"}`
 
 		body := make(map[string]interface{})
-		_, err := client.GETDecoded(ctx, "/data", &body)
+		_, err := client.GET(ctx, "/data", &body)
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Accept"), "application/json"))
@@ -119,7 +119,7 @@ func TestDecoding(t *testing.T) {
 		server.Response.Body = `{"json": {"made": "easy"}}`
 
 		body := make(map[string]interface{})
-		_, err := client.GETDecoded(ctx, "/data", &body)
+		_, err := client.GET(ctx, "/data", &body)
 		assert.ErrorContains(t, err, "expected JSON content-type")
 	})
 
@@ -131,7 +131,7 @@ func TestDecoding(t *testing.T) {
 		server.Response.Body = `{"json": {"made"`
 
 		body := make(map[string]interface{})
-		_, err := client.GETDecoded(ctx, "/data", &body)
+		_, err := client.GET(ctx, "/data", &body)
 		assert.ErrorContains(t, err, "unexpected EOF")
 	})
 }
@@ -141,14 +141,14 @@ func TestEncoding(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL))
 
 		input := map[string]interface{}{}
-		_, err := client.POST(ctx, "/data", &input)
+		_, err := client.POST(ctx, "/data", &input, nil)
 		assert.ErrorContains(t, err, "no encoder")
 	})
 
 	t.Run("Can POST nil even if not configured", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL))
 
-		_, err := client.POST(ctx, "/data", nil)
+		_, err := client.POST(ctx, "/data", nil, nil)
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Length"), "0"))
@@ -161,7 +161,7 @@ func TestEncoding(t *testing.T) {
 	t.Run("Can POST nil when configured", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL), fourten.EncodeJSON)
 
-		_, err := client.POST(ctx, "/data", nil)
+		_, err := client.POST(ctx, "/data", nil, nil)
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Type"), "application/json; charset=utf-8"))
@@ -180,7 +180,7 @@ func TestEncoding(t *testing.T) {
 			"request": "params",
 			"of_json": true,
 		}
-		_, err := client.POST(ctx, "/data", &input)
+		_, err := client.POST(ctx, "/data", &input, nil)
 		assert.NilError(t, err)
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Type"), "application/json; charset=utf-8"))
@@ -198,7 +198,7 @@ func TestEncoding(t *testing.T) {
 			fourten.EncodeJSON)
 
 		input := math.Inf(1)
-		_, err := client.POST(ctx, "/data", &input)
+		_, err := client.POST(ctx, "/data", &input, nil)
 		assert.ErrorContains(t, err, "unsupported value")
 	})
 }
@@ -216,7 +216,7 @@ func TestEncodingAndDecoding(t *testing.T) {
 			"of_json": true,
 		}
 		output := make(map[string]interface{})
-		_, err := client.POSTDecoded(ctx, "/data", &input, &output)
+		_, err := client.POST(ctx, "/data", &input, &output)
 		assert.NilError(t, err)
 
 		requestBody, err := ioutil.ReadAll(server.Request.Body)
@@ -232,18 +232,26 @@ func TestEncodingAndDecoding(t *testing.T) {
 func TestMethods(t *testing.T) {
 	client := fourten.New(fourten.BaseURL(server.URL), fourten.EncodeJSON, fourten.DecodeJSON)
 
+	t.Run("HEAD", func(t *testing.T) {
+		res, err := client.HEAD(ctx, "/method/test")
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Method, "HEAD"))
+		assert.Check(t, cmp.Equal(server.Request.URL.Path, "/method/test"))
+		assert.Check(t, cmp.Equal(res.StatusCode, 200))
+	})
+
 	t.Run("without bodies", func(t *testing.T) {
 		tests := []struct {
 			method string
-			fn     func(context.Context, string) (*http.Response, error)
+			fn     func(context.Context, string, interface{}) (*http.Response, error)
 		}{
 			{"GET", client.GET},
-			{"HEAD", client.HEAD},
 			{"OPTIONS", client.OPTIONS},
 		}
 		for _, test := range tests {
 			t.Run(test.method, func(t *testing.T) {
-				res, err := test.fn(ctx, "/method/test")
+				res, err := test.fn(ctx, "/method/test", nil)
 				assert.NilError(t, err)
 
 				assert.Check(t, cmp.Equal(server.Request.Method, test.method))
@@ -258,8 +266,8 @@ func TestMethods(t *testing.T) {
 			method string
 			fn     func(context.Context, string, interface{}) (*http.Response, error)
 		}{
-			{"GET", client.GETDecoded},
-			{"OPTIONS", client.OPTIONSDecoded},
+			{"GET", client.GET},
+			{"OPTIONS", client.OPTIONS},
 		}
 		for _, test := range tests {
 			t.Run(test.method, func(t *testing.T) {
@@ -281,14 +289,14 @@ func TestMethods(t *testing.T) {
 	t.Run("with bodies", func(t *testing.T) {
 		tests := []struct {
 			method string
-			fn     func(context.Context, string, interface{}) (*http.Response, error)
+			fn     func(context.Context, string, interface{}, interface{}) (*http.Response, error)
 		}{
 			{"POST", client.POST},
 			{"PUT", client.PUT},
 			{"PATCH", client.PATCH},
 			{"DELETE", client.DELETE},
-			{"ANYTHING", func(ctx context.Context, s string, i interface{}) (*http.Response, error) {
-				return client.Send(ctx, "ANYTHING", s, i)
+			{"ANYTHING", func(ctx context.Context, s string, i, o interface{}) (*http.Response, error) {
+				return client.Call(ctx, "ANYTHING", s, i, nil)
 			}},
 		}
 		for _, test := range tests {
@@ -297,7 +305,7 @@ func TestMethods(t *testing.T) {
 				server.Response.Body = `{"some": "json"}`
 
 				input := map[string]interface{}{"input": "json"}
-				res, err := test.fn(ctx, "/method/test", input)
+				res, err := test.fn(ctx, "/method/test", input, nil)
 				assert.NilError(t, err)
 
 				assert.Check(t, cmp.Equal(server.Request.Method, test.method))
@@ -315,12 +323,12 @@ func TestMethods(t *testing.T) {
 			method string
 			fn     func(context.Context, string, interface{}, interface{}) (*http.Response, error)
 		}{
-			{"POST", client.POSTDecoded},
-			{"PUT", client.PUTDecoded},
-			{"PATCH", client.PATCHDecoded},
-			{"DELETE", client.DELETEDecoded},
+			{"POST", client.POST},
+			{"PUT", client.PUT},
+			{"PATCH", client.PATCH},
+			{"DELETE", client.DELETE},
 			{"ANYTHING", func(ctx context.Context, s string, i, o interface{}) (*http.Response, error) {
-				return client.SendDecoded(ctx, "ANYTHING", s, i, o)
+				return client.Call(ctx, "ANYTHING", s, i, o)
 			}},
 		}
 		for _, test := range tests {
@@ -359,7 +367,7 @@ func TestStatusCodes(t *testing.T) {
 			}
 			server.Response = serverResponse
 
-			res, err := client.GET(ctx, "/redirect")
+			res, err := client.GET(ctx, "/redirect", nil)
 			assert.NilError(t, err)
 
 			assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
@@ -375,7 +383,7 @@ func TestStatusCodes(t *testing.T) {
 			server.Sticky = true
 			defer func() { server.Sticky = false }()
 
-			res, err := client.GET(ctx, "/loop")
+			res, err := client.GET(ctx, "/loop", nil)
 			assert.Check(t, res == nil)
 			assert.ErrorContains(t, err, "stopped after 10 redirects")
 		})
@@ -388,7 +396,7 @@ func TestStatusCodes(t *testing.T) {
 			}
 			server.Response = serverResponse
 
-			res, err := nofollow.GET(ctx, "/redirect")
+			res, err := nofollow.GET(ctx, "/redirect", nil)
 			assertHTTPError(t, err, res, serverResponse)
 		})
 	}
@@ -406,7 +414,7 @@ func TestStatusCodes(t *testing.T) {
 			serverResponse := StubResponse{Status: code}
 			server.Response = serverResponse
 
-			res, err := client.GET(ctx, "/error")
+			res, err := client.GET(ctx, "/error", nil)
 
 			assertHTTPError(t, err, res, serverResponse)
 		})
@@ -430,11 +438,11 @@ func TestRefine(t *testing.T) {
 	clientA := fourten.New(fourten.BaseURL(server.URL + "/server-a/"))
 	clientB := clientA.Refine(fourten.BaseURL(server.URL + "/server-b/"))
 
-	_, err := clientA.GET(ctx, "ping")
+	_, err := clientA.GET(ctx, "ping", nil)
 	assert.NilError(t, err)
 	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/server-a/ping"))
 
-	_, err = clientB.GET(ctx, "ping")
+	_, err = clientB.GET(ctx, "ping", nil)
 	assert.NilError(t, err)
 	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/server-b/ping"))
 }
@@ -445,7 +453,7 @@ func TestTimeouts(t *testing.T) {
 
 	server.Delay = time.Millisecond
 
-	_, err := client.GET(ctx, "/request")
+	_, err := client.GET(ctx, "/request", nil)
 	assert.ErrorContains(t, err, "deadline exceeded")
 }
 

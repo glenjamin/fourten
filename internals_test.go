@@ -26,7 +26,7 @@ func TestTimeout_DefaultsToShort(t *testing.T) {
 		return nil, errors.New("not a real roundtrip")
 	})
 
-	_, _ = client.GET(context.Background(), "/anywhere")
+	_, _ = client.GET(context.Background(), "/anywhere", nil)
 
 	assert.Assert(t, requestCtx != nil)
 	deadline, ok := requestCtx.Deadline()
