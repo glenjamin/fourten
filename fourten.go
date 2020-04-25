@@ -51,8 +51,8 @@ func New(opts ...Option) *Client {
 	return c
 }
 
-// Refine copies the current client, applying additional options as specified
-func (c *Client) Refine(opts ...Option) *Client {
+// Derive copies the current client, applying additional options as specified
+func (c *Client) Derive(opts ...Option) *Client {
 	httpClient := *c.httpClient
 
 	new := &Client{

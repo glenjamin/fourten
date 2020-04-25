@@ -388,7 +388,7 @@ func TestStatusCodes(t *testing.T) {
 			assert.ErrorContains(t, err, "stopped after 10 redirects")
 		})
 		t.Run("HTTP Status "+strconv.Itoa(code)+" can be told not to follow redirects", func(t *testing.T) {
-			nofollow := client.Refine(fourten.NoFollow)
+			nofollow := client.Derive(fourten.NoFollow)
 			serverResponse := StubResponse{
 				Status:  code,
 				Headers: Headers{"location": []string{"/redirected"}},
@@ -436,7 +436,7 @@ func assertHTTPError(t *testing.T, err error, res *http.Response, expected StubR
 
 func TestRefine(t *testing.T) {
 	clientA := fourten.New(fourten.BaseURL(server.URL + "/server-a/"))
-	clientB := clientA.Refine(fourten.BaseURL(server.URL + "/server-b/"))
+	clientB := clientA.Derive(fourten.BaseURL(server.URL + "/server-b/"))
 
 	_, err := clientA.GET(ctx, "ping", nil)
 	assert.NilError(t, err)

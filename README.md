@@ -65,8 +65,8 @@ ctx := context.Background()
     errors.Is(err, fourten.ErrHTTP) // true
 }
 
-// Refine the client's defaults as needed
-refined := client.Refine(
+// Derive new clients from the existing client's defaults as needed
+derived := client.Derive(
     fourten.DontRetry,
     fourten.EncodeJSON,
 )
@@ -75,7 +75,7 @@ refined := client.Refine(
 {
     input = map[string]interface{}{"abc": "def"}
     output := make(map[string]interace{})
-    res, err := refined.POST(ctx, "/items", input, &output)
+    res, err := derived.POST(ctx, "/items", input, &output)
     println(err, res, output)
 }
 
