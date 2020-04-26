@@ -55,7 +55,7 @@ func New(opts ...Option) *Client {
 func (c *Client) Derive(opts ...Option) *Client {
 	httpClient := *c.httpClient
 
-	new := &Client{
+	derived := &Client{
 		Request: &http.Request{
 			URL:    c.Request.URL.ResolveReference(&url.URL{}),
 			Header: c.Request.Header.Clone(),
@@ -67,9 +67,9 @@ func (c *Client) Derive(opts ...Option) *Client {
 		httpClient: &httpClient,
 	}
 	for _, opt := range opts {
-		opt(new)
+		opt(derived)
 	}
-	return new
+	return derived
 }
 
 func RequestTimeout(d time.Duration) Option {
@@ -184,11 +184,7 @@ func (c *Client) Call(ctx context.Context, method, target string, input, output 
 	if output != nil {
 		// when we handle output, we close body - otherwise it's up to the caller
 		defer res.Body.Close()
-		if c.decoder == nil {
-			return nil, errors.New("output requested but no decoder configured")
-		}
-		err = c.decoder(res.Header.Get("content-type"), res.Body, output)
-		if err != nil {
+		if err := c.handleDecoding(res, output); err != nil {
 			return nil, err
 		}
 	}
@@ -225,6 +221,20 @@ func (c *Client) setupEncoding(req *http.Request, input interface{}) error {
 	var err error
 	req.Body, err = req.GetBody()
 	return err
+}
+
+func (c *Client) handleDecoding(res *http.Response, output interface{}) error {
+	if c.decoder == nil {
+		return errors.New("output requested but no decoder configured")
+	}
+	// Only attempt to decode if we have a body
+	if res.ContentLength > 0 {
+		err := c.decoder(res.Header.Get("content-type"), res.Body, output)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func coerceHTTPError(res *http.Response, err error) error {

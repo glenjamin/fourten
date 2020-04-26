@@ -32,6 +32,8 @@ func init() {
 	})
 }
 
+var contentTypeJSON = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+
 func TestURLResolution(t *testing.T) {
 	t.Run("Can request absolute URLs", func(t *testing.T) {
 		client := fourten.New()
@@ -101,7 +103,7 @@ func TestDecoding(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.DecodeJSON)
 
-		server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+		server.Response.Headers = contentTypeJSON
 		server.Response.Body = `{"json": "made easy"}`
 
 		body := make(map[string]interface{})
@@ -127,7 +129,7 @@ func TestDecoding(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.DecodeJSON)
 
-		server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+		server.Response.Headers = contentTypeJSON
 		server.Response.Body = `{"json": {"made"`
 
 		body := make(map[string]interface{})
@@ -208,7 +210,7 @@ func TestEncodingAndDecoding(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.EncodeJSON, fourten.DecodeJSON)
 
-		server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+		server.Response.Headers = contentTypeJSON
 		server.Response.Body = `{"easy_as": 123}`
 
 		input := map[string]interface{}{
@@ -271,7 +273,7 @@ func TestMethods(t *testing.T) {
 		}
 		for _, test := range tests {
 			t.Run(test.method, func(t *testing.T) {
-				server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+				server.Response.Headers = contentTypeJSON
 				server.Response.Body = `{"some": "json"}`
 
 				output := make(map[string]interface{})
@@ -301,7 +303,7 @@ func TestMethods(t *testing.T) {
 		}
 		for _, test := range tests {
 			t.Run(test.method, func(t *testing.T) {
-				server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+				server.Response.Headers = contentTypeJSON
 				server.Response.Body = `{"some": "json"}`
 
 				input := map[string]interface{}{"input": "json"}
@@ -333,7 +335,7 @@ func TestMethods(t *testing.T) {
 		}
 		for _, test := range tests {
 			t.Run(test.method, func(t *testing.T) {
-				server.Response.Headers = Headers{"content-type": []string{"application/json; charset=utf-8"}}
+				server.Response.Headers = contentTypeJSON
 				server.Response.Body = `{"some": "json"}`
 
 				input := map[string]interface{}{"input": "json"}
@@ -354,9 +356,39 @@ func TestMethods(t *testing.T) {
 }
 
 func TestStatusCodes(t *testing.T) {
-	client := fourten.New(fourten.BaseURL(server.URL))
+	client := fourten.New(fourten.BaseURL(server.URL), fourten.DecodeJSON)
 
-	// TODO: 2xx
+	// TODO: 1xx codes? (probably safe to ignore for now)
+
+	validJSONResponse := StubResponse{
+		Headers: contentTypeJSON,
+		Body:    `{"valid": "json"}`,
+	}
+	expectedResponse := map[string]interface{}{"valid": "json"}
+
+	okCodes := []int{200, 201, 202, 203, 205, 206, 207, 208, 226}
+	for _, code := range okCodes {
+		t.Run("HTTP Status "+strconv.Itoa(code)+" is handled as non-error", func(t *testing.T) {
+			server.Response = validJSONResponse
+			server.Response.Status = code
+
+			var output map[string]interface{}
+			res, err := client.GET(ctx, "/ok", &output)
+			assert.NilError(t, err)
+			assert.Check(t, cmp.Equal(res.StatusCode, code))
+			assert.DeepEqual(t, output, expectedResponse)
+		})
+	}
+
+	t.Run("HTTP Status 204 is handled as non-error with no body", func(t *testing.T) {
+		server.Response = StubResponse{Status: 204}
+
+		var output map[string]interface{}
+		res, err := client.GET(ctx, "/ok", &output)
+		assert.NilError(t, err)
+		assert.Check(t, cmp.Equal(res.StatusCode, 204))
+		assert.Check(t, cmp.DeepEqual(output, map[string]interface{}(nil)))
+	})
 
 	redirectErrorCodes := []int{301, 302, 303, 307, 308}
 	for _, code := range redirectErrorCodes {
@@ -411,7 +443,7 @@ func TestStatusCodes(t *testing.T) {
 
 	for _, code := range standardErrorCodes {
 		t.Run("HTTP Status "+strconv.Itoa(code), func(t *testing.T) {
-			serverResponse := StubResponse{Status: code}
+			serverResponse := StubResponse{Status: code, Body: "WHOOPS"}
 			server.Response = serverResponse
 
 			res, err := client.GET(ctx, "/error", nil)
@@ -458,6 +490,7 @@ func TestTimeouts(t *testing.T) {
 }
 
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
+	t.Helper()
 	assert.Assert(t, res != nil)
 	assert.Check(t, cmp.Equal(res.StatusCode, want.Status))
 
