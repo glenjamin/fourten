@@ -558,6 +558,9 @@ func TestStatusCodes(t *testing.T) {
 			// And the type allows for decoding
 			var errOut map[string]interface{}
 			assert.Check(t, cmp.ErrorContains(httpErr.Decode(&errOut), "failed to decode"))
+
+			// when decoding fails, fallback to reading strings
+			assert.Check(t, cmp.Equal(httpErr.Body(), `{"error": }`))
 		})
 	}
 

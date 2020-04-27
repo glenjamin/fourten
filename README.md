@@ -63,6 +63,14 @@ ctx := context.Background()
 {
     res, err := client.GET(ctx, "/error", nil) // 4xx, 5xx etc
     errors.Is(err, fourten.ErrHTTP) // true
+
+    // And can be cast into useful error types
+    var httpErr *fourten.HttpError
+    errors.As(err, &httpErr) // true
+    json := make(map[string]interace{})
+    err := httpErr.Decode(json)
+    raw := httpErr.Body()
+    println(err, res, json, raw)
 }
 
 // Derive new clients from the existing client's defaults as needed
@@ -98,13 +106,9 @@ TODO
 
 ## TODO
 
-* Test all HTTP status codes
-* HTTP Error response decoding
-    * HTTPError.Decode() method
-    * HTTPError.Body() method? (would require some read buffering if it's a decode fallback)
 * test that GetBody works
 * configure connection pooling
-* have a helper for IsHTTPCode(err)
+* have a helper for IsHTTPCode(err) & other useful error things like casting and reading
 * per-request options
 * url params
 * Retries

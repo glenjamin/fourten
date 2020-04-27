@@ -288,3 +288,7 @@ func (e *HTTPError) Decode(output interface{}) error {
 	resp.Body = ioutil.NopCloser(bytes.NewReader(e.body.Bytes()))
 	return handleDecoding(&resp, e.decoder, output)
 }
+
+func (e *HTTPError) Body() string {
+	return e.body.String()
+}
