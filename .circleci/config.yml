@@ -5,6 +5,9 @@ workflows:
     jobs:
       - test
 
+orbs:
+  codecov: codecov/codecov@1.0.5
+
 jobs:
   test:
     docker:
@@ -18,7 +21,14 @@ jobs:
           name: run tests
           command: |
             mkdir -p test-results/
-            gotestsum --junitfile test-results/junit.xml -- -race ./...
+            gotestsum --junitfile test-results/junit.xml -- -race -coverprofile='test-results/coverage.txt' ./...
+      - run:
+          name: generate coverage report
+          command: |
+            go tool cover -html=test-results/coverage.txt -o test-results/coverage.html
+      - codecov/upload:
+          flags: tests
+          file: test-results/coverage.txt
       - store_artifacts:
           path: test-results
       - store_test_results:
