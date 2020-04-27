@@ -97,7 +97,7 @@ func Bearer(token string) Option {
 	return SetHeader("Authorization", "Bearer "+token)
 }
 
-func DontFollowRedirect(req *http.Request, via []*http.Request) error {
+func DontFollowRedirect(_ *http.Request, _ []*http.Request) error {
 	return http.ErrUseLastResponse
 }
 func NoFollow(c *Client) {
@@ -178,18 +178,30 @@ func (c *Client) Call(ctx context.Context, method, target string, input, output 
 		return nil, err
 	}
 
-	httpErr := coerceHTTPError(res, err)
+	httpErr := coerceHTTPError(res)
 
 	// non-nil output means we try output decoding
 	if output != nil {
 		// when we handle output, we close body - otherwise it's up to the caller
 		defer res.Body.Close()
-		if err := c.handleDecoding(res, output); err != nil {
-			return nil, err
+
+		// if we have an http error don't decode to output, it's unlikely to match
+		// instead, we'll read from res to free the connection up, but store the data for later use
+		if httpErr != nil {
+			if err := httpErr.populateBody(c.decoder); err != nil {
+				return nil, fmt.Errorf("failed to read error body: %w", err)
+			}
+		} else {
+			if err := handleDecoding(res, c.decoder, output); err != nil {
+				return nil, err
+			}
 		}
 	}
 
-	return res, httpErr
+	if httpErr != nil {
+		return res, httpErr
+	}
+	return res, nil
 }
 
 func (c *Client) buildRequest(method, target string) (*http.Request, error) {
@@ -223,13 +235,13 @@ func (c *Client) setupEncoding(req *http.Request, input interface{}) error {
 	return err
 }
 
-func (c *Client) handleDecoding(res *http.Response, output interface{}) error {
-	if c.decoder == nil {
+func handleDecoding(res *http.Response, decoder Decoder, output interface{}) error {
+	if decoder == nil {
 		return errors.New("output requested but no decoder configured")
 	}
 	// Only attempt to decode if we have a body
 	if res.ContentLength > 0 {
-		err := c.decoder(res.Header.Get("content-type"), res.Body, output)
+		err := decoder(res.Header.Get("content-type"), res.Body, output)
 		if err != nil {
 			return err
 		}
@@ -237,12 +249,9 @@ func (c *Client) handleDecoding(res *http.Response, output interface{}) error {
 	return nil
 }
 
-func coerceHTTPError(res *http.Response, err error) error {
-	if err != nil {
-		return err
-	}
+func coerceHTTPError(res *http.Response) *HTTPError {
 	if res.StatusCode >= 300 {
-		return &HTTPError{res}
+		return &HTTPError{Response: res}
 	}
 	return nil
 }
@@ -251,6 +260,17 @@ var ErrHTTP = fmt.Errorf("base HTTP error")
 
 type HTTPError struct {
 	Response *http.Response
+
+	body    *bytes.Buffer
+	decoder Decoder
+}
+
+func (e *HTTPError) populateBody(decoder Decoder) error {
+	e.decoder = decoder
+	b := make([]byte, 0, e.Response.ContentLength)
+	e.body = bytes.NewBuffer(b)
+	_, err := io.Copy(e.body, e.Response.Body)
+	return err
 }
 
 func (e *HTTPError) Error() string {
@@ -260,4 +280,11 @@ func (e *HTTPError) Error() string {
 // Is allows HTTPError to match errors.Is(fourten.ErrHTTP), potentially saving you a type cast
 func (e *HTTPError) Is(err error) bool {
 	return err == ErrHTTP
+}
+
+// Decode will use the configured decoder to populate output from the response body
+func (e *HTTPError) Decode(output interface{}) error {
+	resp := *e.Response
+	resp.Body = ioutil.NopCloser(bytes.NewReader(e.body.Bytes()))
+	return handleDecoding(&resp, e.decoder, output)
 }

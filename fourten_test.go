@@ -99,7 +99,7 @@ func TestDecoding(t *testing.T) {
 		assert.ErrorContains(t, err, "no decoder")
 	})
 
-	t.Run("Requests and Decodes JSON into provided pointer", func(t *testing.T) {
+	t.Run("Requests and Decodes JSON into provided map", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.DecodeJSON)
 
@@ -112,6 +112,38 @@ func TestDecoding(t *testing.T) {
 
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Accept"), "application/json"))
 		assert.Check(t, cmp.DeepEqual(body, map[string]interface{}{"json": "made easy"}))
+	})
+
+	t.Run("Requests and Decodes JSON into provided struct", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Headers = contentTypeJSON
+		server.Response.Body = `{"json": "made easy"}`
+
+		type resp struct {
+			Json string
+		}
+		body := resp{}
+		_, err := client.GET(ctx, "/data", &body)
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.DeepEqual(body, resp{"made easy"}))
+	})
+
+	t.Run("Handles failed struct decodes correctly", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Headers = contentTypeJSON
+		server.Response.Body = `{"json": 123, "and": "more"}`
+
+		type resp struct {
+			Json string
+		}
+		body := resp{}
+		_, err := client.GET(ctx, "/data", &body)
+		assert.Assert(t, cmp.ErrorContains(err, "json: cannot unmarshal"))
 	})
 
 	t.Run("Won't decode JSON without a content type", func(t *testing.T) {
@@ -360,23 +392,21 @@ func TestStatusCodes(t *testing.T) {
 
 	// TODO: 1xx codes? (probably safe to ignore for now)
 
-	validJSONResponse := StubResponse{
-		Headers: contentTypeJSON,
-		Body:    `{"valid": "json"}`,
-	}
-	expectedResponse := map[string]interface{}{"valid": "json"}
-
 	okCodes := []int{200, 201, 202, 203, 205, 206, 207, 208, 226}
 	for _, code := range okCodes {
 		t.Run("HTTP Status "+strconv.Itoa(code)+" is handled as non-error", func(t *testing.T) {
-			server.Response = validJSONResponse
-			server.Response.Status = code
+			stubResponse := StubResponse{
+				Status:  code,
+				Headers: contentTypeJSON,
+				Body:    `{"valid": "json"}`,
+			}
+			server.Response = stubResponse
 
 			var output map[string]interface{}
 			res, err := client.GET(ctx, "/ok", &output)
 			assert.NilError(t, err)
 			assert.Check(t, cmp.Equal(res.StatusCode, code))
-			assert.DeepEqual(t, output, expectedResponse)
+			assert.DeepEqual(t, output, map[string]interface{}{"valid": "json"})
 		})
 	}
 
@@ -429,12 +459,22 @@ func TestStatusCodes(t *testing.T) {
 			server.Response = serverResponse
 
 			res, err := nofollow.GET(ctx, "/redirect", nil)
-			assertHTTPError(t, err, res, serverResponse)
+
+			// We get an error value
+			assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", code)))
+			// But the normal response is still populated, including a readable body
+			assertResponse(t, res, serverResponse)
+			// The error can be compared against a sentinel
+			assert.Check(t, errors.Is(err, fourten.ErrHTTP))
+			// Or cast into the custom type
+			var httpErr *fourten.HTTPError
+			assert.Check(t, errors.As(err, &httpErr))
+			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
 		})
 	}
 
 	standardErrorCodes := []int{
-		300, 304, 305, 306,
+		300, 305, 306,
 		400, 401, 402, 403, 404, 405, 406, 407, 408, 409, 410,
 		411, 412, 413, 414, 415, 416, 417, 418, 421, 422, 423,
 		424, 426, 428, 429, 431, 451,
@@ -442,28 +482,102 @@ func TestStatusCodes(t *testing.T) {
 	}
 
 	for _, code := range standardErrorCodes {
-		t.Run("HTTP Status "+strconv.Itoa(code), func(t *testing.T) {
+		t.Run("HTTP Status "+strconv.Itoa(code)+" without decoding", func(t *testing.T) {
 			serverResponse := StubResponse{Status: code, Body: "WHOOPS"}
 			server.Response = serverResponse
 
 			res, err := client.GET(ctx, "/error", nil)
 
-			assertHTTPError(t, err, res, serverResponse)
+			// We get an error value
+			assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", code)))
+			// But the normal response is still populated, including a readable body
+			assertResponse(t, res, serverResponse)
+			// The error can be compared against a sentinel
+			assert.Check(t, errors.Is(err, fourten.ErrHTTP))
+			// Or cast into the custom type
+			var httpErr *fourten.HTTPError
+			assert.Check(t, errors.As(err, &httpErr))
+			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+		})
+
+		t.Run("HTTP Status "+strconv.Itoa(code)+" with error decoding", func(t *testing.T) {
+			stubResponse := StubResponse{
+				Status:  code,
+				Headers: contentTypeJSON,
+				Body:    `{"error": "aaarrggh"}`,
+			}
+			server.Response = stubResponse
+
+			var output map[string]interface{}
+			res, err := client.GET(ctx, "/error", &output)
+
+			// We get an error value
+			assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", code)))
+			// The normal response is still populated
+			assert.Check(t, cmp.Equal(res.StatusCode, code))
+			// But the body has been consumed
+			assert.Check(t, bodyConsumed(res.Body))
+			// And output remains nil
+			assert.Check(t, cmp.DeepEqual(output, map[string]interface{}(nil)))
+
+			// The error can be compared against a sentinel
+			assert.Check(t, errors.Is(err, fourten.ErrHTTP))
+			// Or cast into the custom type
+			var httpErr *fourten.HTTPError
+			assert.Check(t, errors.As(err, &httpErr))
+			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+			// And the type allows for decoding
+			var errOut map[string]interface{}
+			assert.Check(t, cmp.Nil(httpErr.Decode(&errOut)))
+			assert.Check(t, cmp.DeepEqual(errOut, map[string]interface{}{"error": "aaarrggh"}))
+		})
+
+		t.Run("when error decoding fails", func(t *testing.T) {
+			stubResponse := StubResponse{
+				Status:  code,
+				Headers: contentTypeJSON,
+				Body:    `{"error": }`,
+			}
+			server.Response = stubResponse
+
+			var output map[string]interface{}
+			res, err := client.GET(ctx, "/error", &output)
+
+			// We get an error value
+			assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", code)))
+			// The normal response is still populated
+			assert.Check(t, cmp.Equal(res.StatusCode, code))
+			// But the body has been consumed
+			assert.Check(t, bodyConsumed(res.Body))
+			// And output remains nil
+			assert.Check(t, cmp.DeepEqual(output, map[string]interface{}(nil)))
+
+			var httpErr *fourten.HTTPError
+			assert.Check(t, errors.As(err, &httpErr))
+			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+			// And the type allows for decoding
+			var errOut map[string]interface{}
+			assert.Check(t, cmp.ErrorContains(httpErr.Decode(&errOut), "failed to decode"))
 		})
 	}
-}
 
-func assertHTTPError(t *testing.T, err error, res *http.Response, expected StubResponse) {
-	// We get an error value
-	assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", expected.Status)))
-	// But the normal response is still populated
-	assertResponse(t, res, expected)
-	// The error can be compared against a sentinel
-	assert.Check(t, errors.Is(err, fourten.ErrHTTP))
-	// Or cast into the custom type
-	var httpErr *fourten.HTTPError
-	assert.Check(t, errors.As(err, &httpErr))
-	assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+	t.Run("HTTP Status 304 without decoding", func(t *testing.T) {
+		serverResponse := StubResponse{Status: 304, Body: ""}
+		server.Response = serverResponse
+
+		res, err := client.GET(ctx, "/error", nil)
+
+		// We get an error value
+		assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", 304)))
+		// But the normal response is still populated, including a readable body
+		assertResponse(t, res, serverResponse)
+		// The error can be compared against a sentinel
+		assert.Check(t, errors.Is(err, fourten.ErrHTTP))
+		// Or cast into the custom type
+		var httpErr *fourten.HTTPError
+		assert.Check(t, errors.As(err, &httpErr))
+		assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+	})
 }
 
 func TestRefine(t *testing.T) {
@@ -471,7 +585,7 @@ func TestRefine(t *testing.T) {
 	clientB := clientA.Derive(fourten.BaseURL(server.URL + "/server-b/"))
 
 	_, err := clientA.GET(ctx, "ping", nil)
-	assert.NilError(t, err)
+	assert.NilError(t, err, "%#v", err)
 	assert.Check(t, cmp.Equal(server.Request.URL.Path, "/server-a/ping"))
 
 	_, err = clientB.GET(ctx, "ping", nil)
@@ -501,6 +615,13 @@ func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
 	body, err := ioutil.ReadAll(res.Body)
 	assert.NilError(t, err)
 	assert.Check(t, cmp.Equal(string(body), want.Body))
+}
+
+func bodyConsumed(r io.Reader) cmp.Comparison {
+	return func() cmp.Result {
+		_, err := r.Read(nil)
+		return cmp.ErrorContains(err, "read on closed")()
+	}
 }
 
 type RecordingServer struct {
