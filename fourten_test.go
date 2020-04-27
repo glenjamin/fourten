@@ -532,6 +532,18 @@ func TestStatusCodes(t *testing.T) {
 			assert.Check(t, cmp.DeepEqual(errOut, map[string]interface{}{"error": "aaarrggh"}))
 		})
 
+		t.Run("failed to read body during error response", func(t *testing.T) {
+			server.Response = StubResponse{
+				Status:  code,
+				Headers: map[string][]string{"Content-Length": {"1"}},
+				Body:    "more than 1",
+			}
+
+			var output map[string]interface{}
+			_, err := client.GET(ctx, "/error", &output)
+			assert.Check(t, cmp.ErrorContains(err, "unexpected EOF"))
+		})
+
 		t.Run("when error decoding fails", func(t *testing.T) {
 			stubResponse := StubResponse{
 				Status:  code,
