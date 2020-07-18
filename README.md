@@ -106,10 +106,10 @@ TODO
 
 ## TODO
 
-* AsHTTPError(err) *HTTPError
 * handle chunked transfer encoding responses
 * handle gzip server responses
 * allow gzipping client requests
+* ensure we handle connection errors properly
 * configure connection pooling - http://tleyden.github.io/blog/2016/11/21/tuning-the-go-http-client-library-for-load-testing/
 * url params
 * Retries

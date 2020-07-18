@@ -465,10 +465,10 @@ func TestStatusCodes(t *testing.T) {
 			assertResponse(t, res, serverResponse)
 			// The error can be compared against a sentinel
 			assert.Check(t, errors.Is(err, fourten.ErrHTTP))
-			// Or cast into the custom type
-			var httpErr *fourten.HTTPError
-			assert.Check(t, errors.As(err, &httpErr))
-			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+			// Or as a custom error type
+			httpErr := fourten.AsHTTPError(err)
+			assert.Check(t, httpErr != nil)
+			assert.Check(t, cmp.Equal(httpErr.Response, res), "expected response to match error field")
 		})
 	}
 
@@ -519,6 +519,9 @@ func TestStatusCodes(t *testing.T) {
 			var httpErr *fourten.HTTPError
 			assert.Check(t, errors.As(err, &httpErr))
 			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+			// Or into custom type via helper
+			httpErrSugar := fourten.AsHTTPError(err)
+			assert.Check(t, cmp.Equal(httpErr, httpErrSugar))
 		})
 
 		t.Run("HTTP Status "+strconv.Itoa(code)+" with error decoding", func(t *testing.T) {
@@ -544,8 +547,8 @@ func TestStatusCodes(t *testing.T) {
 			// The error can be compared against a sentinel
 			assert.Check(t, errors.Is(err, fourten.ErrHTTP))
 			// Or cast into the custom type
-			var httpErr *fourten.HTTPError
-			assert.Check(t, errors.As(err, &httpErr))
+			httpErr := fourten.AsHTTPError(err)
+			assert.Check(t, httpErr != nil)
 			assert.Check(t, cmp.Equal(httpErr.Response, res), "expected response to match error field")
 			// And the type allows for decoding
 			var errOut map[string]interface{}
@@ -717,4 +720,17 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Delay = 0
 		s.Response = s.defaultResponse
 	}
+}
+
+func TestAsHTTPError(t *testing.T) {
+	t.Run("returns a type-cast HTTPError if passed one", func(t *testing.T) {
+		var err error = &fourten.HTTPError{}
+		httpErr := fourten.AsHTTPError(err)
+		assert.Check(t, cmp.Equal(httpErr, err.(*fourten.HTTPError)))
+	})
+	t.Run("returns nil if not passed an HTTPError", func(t *testing.T) {
+		var err error = errors.New("not an http error")
+		httpErr := fourten.AsHTTPError(err)
+		assert.Check(t, httpErr == nil)
+	})
 }

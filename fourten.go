@@ -256,6 +256,14 @@ func coerceHTTPError(res *http.Response) *HTTPError {
 	return nil
 }
 
+func AsHTTPError(err error) *HTTPError {
+	var httpErr *HTTPError
+	if errors.As(err, &httpErr) {
+		return httpErr
+	}
+	return nil
+}
+
 var ErrHTTP = fmt.Errorf("base HTTP error")
 
 type HTTPError struct {
