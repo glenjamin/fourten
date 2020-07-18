@@ -87,13 +87,13 @@ derived := client.Derive(
     println(err, res, output)
 }
 
-// Override options per request too if you want
+// To override options per request, derive a client inline
 {
-    res, err := client.POST(ctx, "/items/one-shot", nil, nil, fourten.DontRetry)
+    res, err := client.Derive(fourten.DontRetry).POST(ctx, "/items/one-shot", nil, nil)
     println(err, res, json)
 }
 
-// URL parameters can be filled in too
+// URL parameters can be filled in via optional additional parameters
 {
     res, err := client.POST(ctx, "/items/:item-id", nil, nil, fourten.Param("item-id", "123456"))
     println(err, res, json)
@@ -106,10 +106,11 @@ TODO
 
 ## TODO
 
-* test that GetBody works
-* configure connection pooling
-* have a helper for IsHTTPCode(err) & other useful error things like casting and reading
-* per-request options
+* AsHTTPError(err) *HTTPError
+* handle chunked transfer encoding responses
+* handle gzip server responses
+* allow gzipping client requests
+* configure connection pooling - http://tleyden.github.io/blog/2016/11/21/tuning-the-go-http-client-library-for-load-testing/
 * url params
 * Retries
 * O11y

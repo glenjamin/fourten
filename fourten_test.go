@@ -450,7 +450,6 @@ func TestStatusCodes(t *testing.T) {
 			assert.ErrorContains(t, err, "stopped after 10 redirects")
 		})
 		t.Run("HTTP Status "+strconv.Itoa(code)+" can be told not to follow redirects", func(t *testing.T) {
-			nofollow := client.Derive(fourten.NoFollow)
 			serverResponse := StubResponse{
 				Status:  code,
 				Headers: Headers{"location": []string{"/redirected"}},
@@ -458,7 +457,7 @@ func TestStatusCodes(t *testing.T) {
 			}
 			server.Response = serverResponse
 
-			res, err := nofollow.GET(ctx, "/redirect", nil)
+			res, err := client.Derive(fourten.NoFollow).GET(ctx, "/redirect", nil)
 
 			// We get an error value
 			assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", code)))
@@ -470,6 +469,28 @@ func TestStatusCodes(t *testing.T) {
 			var httpErr *fourten.HTTPError
 			assert.Check(t, errors.As(err, &httpErr))
 			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+		})
+	}
+
+	postRedirectErrorCodes := []int{307, 308}
+	for _, code := range postRedirectErrorCodes {
+		t.Run("HTTP Status "+strconv.Itoa(code)+" follows Redirects, repeating request body", func(t *testing.T) {
+			serverResponse := StubResponse{
+				Status:  code,
+				Headers: Headers{"location": []string{"/redirected"}},
+			}
+			server.Response = serverResponse
+
+			input := map[string]interface{}{"input": "json"}
+			res, err := client.Derive(fourten.EncodeJSON).POST(ctx, "/redirect", input, nil)
+			assert.NilError(t, err)
+
+			assert.Check(t, cmp.Equal(server.Request.Method, "POST"))
+			assert.Check(t, cmp.Equal(server.Request.URL.Path, "/redirected"))
+			requestBody, err := ioutil.ReadAll(server.Request.Body)
+			assert.NilError(t, err)
+			assert.Check(t, cmp.Equal(string(requestBody), `{"input":"json"}`+"\n"))
+			assertResponse(t, res, StubResponse{Status: 200, Body: "PONG"})
 		})
 	}
 
@@ -525,11 +546,13 @@ func TestStatusCodes(t *testing.T) {
 			// Or cast into the custom type
 			var httpErr *fourten.HTTPError
 			assert.Check(t, errors.As(err, &httpErr))
-			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+			assert.Check(t, cmp.Equal(httpErr.Response, res), "expected response to match error field")
 			// And the type allows for decoding
 			var errOut map[string]interface{}
 			assert.Check(t, cmp.Nil(httpErr.Decode(&errOut)))
 			assert.Check(t, cmp.DeepEqual(errOut, map[string]interface{}{"error": "aaarrggh"}))
+			// Or simply reading bytes
+			assert.Check(t, cmp.DeepEqual(httpErr.Body(), `{"error": "aaarrggh"}`))
 		})
 
 		t.Run("failed to read body during error response", func(t *testing.T) {
@@ -566,12 +589,12 @@ func TestStatusCodes(t *testing.T) {
 
 			var httpErr *fourten.HTTPError
 			assert.Check(t, errors.As(err, &httpErr))
-			assert.Equal(t, httpErr.Response, res, "expected response to match error field")
+			assert.Check(t, cmp.Equal(httpErr.Response, res), "expected response to match error field")
 			// And the type allows for decoding
 			var errOut map[string]interface{}
 			assert.Check(t, cmp.ErrorContains(httpErr.Decode(&errOut), "failed to decode"))
 
-			// when decoding fails, fallback to reading strings
+			// when decoding fails, can still fall back to reading strings
 			assert.Check(t, cmp.Equal(httpErr.Body(), `{"error": }`))
 		})
 	}
