@@ -644,6 +644,19 @@ func TestTimeouts(t *testing.T) {
 	assert.ErrorContains(t, err, "deadline exceeded")
 }
 
+func TestAsHTTPError(t *testing.T) {
+	t.Run("returns a type-cast HTTPError if passed one", func(t *testing.T) {
+		var err error = &fourten.HTTPError{}
+		httpErr := fourten.AsHTTPError(err)
+		assert.Check(t, cmp.Equal(httpErr, err.(*fourten.HTTPError)))
+	})
+	t.Run("returns nil if not passed an HTTPError", func(t *testing.T) {
+		var err error = errors.New("not an http error")
+		httpErr := fourten.AsHTTPError(err)
+		assert.Check(t, httpErr == nil)
+	})
+}
+
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
 	t.Helper()
 	assert.Assert(t, res != nil)
@@ -720,17 +733,4 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.Delay = 0
 		s.Response = s.defaultResponse
 	}
-}
-
-func TestAsHTTPError(t *testing.T) {
-	t.Run("returns a type-cast HTTPError if passed one", func(t *testing.T) {
-		var err error = &fourten.HTTPError{}
-		httpErr := fourten.AsHTTPError(err)
-		assert.Check(t, cmp.Equal(httpErr, err.(*fourten.HTTPError)))
-	})
-	t.Run("returns nil if not passed an HTTPError", func(t *testing.T) {
-		var err error = errors.New("not an http error")
-		httpErr := fourten.AsHTTPError(err)
-		assert.Check(t, httpErr == nil)
-	})
 }
