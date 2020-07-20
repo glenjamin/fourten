@@ -254,10 +254,8 @@ func handleDecoding(res *http.Response, decoder Decoder, output interface{}) err
 		return nil
 	// got a response but don't care
 	case output == nil:
-		if _, err := io.Copy(ioutil.Discard, res.Body); err != nil {
-			return fmt.Errorf("failed to discard body: %w", err)
-		}
-		return nil
+		_, err := io.Copy(ioutil.Discard, res.Body)
+		return err
 	}
 
 	// Hand off to the decoder if we got this far
