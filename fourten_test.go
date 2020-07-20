@@ -158,6 +158,7 @@ func TestDecoding(t *testing.T) {
 		assert.ErrorContains(t, err, "empty response")
 		assert.Assert(t, res == nil)
 	})
+
 	t.Run("empty response body with a nil out is fine", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.DecodeJSON, fourten.RequestTimeout(time.Minute))
@@ -173,6 +174,23 @@ func TestDecoding(t *testing.T) {
 		assert.Check(t, err != nil)
 		assert.Check(t, cmp.Equal(n, 0))
 	})
+
+	t.Run("pass an unbound map pointer to ignore without disabling decoding", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Headers = contentTypeJSON
+		server.Response.Body = `{"json": "made easy"}`
+
+		res, err := client.GET(ctx, "/data", &map[string]interface{}{})
+		assert.NilError(t, err)
+
+		b := make([]byte, 10)
+		n, err := res.Body.Read(b)
+		assert.Check(t, err != nil)
+		assert.Check(t, cmp.Equal(n, 0))
+	})
+
 	t.Run("decoding can be opted out of", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.DecodeJSON)
