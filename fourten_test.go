@@ -131,6 +131,62 @@ func TestDecoding(t *testing.T) {
 		assert.Check(t, cmp.DeepEqual(body, resp{"made easy"}))
 	})
 
+	t.Run("decoder + nil output param means discard body", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Headers = contentTypeJSON
+		server.Response.Body = `{"json": "made easy"}`
+
+		res, err := client.GET(ctx, "/data", nil)
+		assert.NilError(t, err)
+
+		b := make([]byte, 10)
+		n, err := res.Body.Read(b)
+		assert.Check(t, err != nil)
+		assert.Check(t, cmp.Equal(n, 0))
+	})
+
+	t.Run("empty response body with an out param is an error", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Body = ``
+
+		var out interface{}
+		res, err := client.GET(ctx, "/data", &out)
+		assert.ErrorContains(t, err, "empty response")
+		assert.Assert(t, res == nil)
+	})
+	t.Run("empty response body with a nil out is fine", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON, fourten.RequestTimeout(time.Minute))
+
+		server.Response.Body = ``
+
+		res, err := client.GET(ctx, "/data", nil)
+		assert.NilError(t, err)
+
+		// And the body is still closed
+		b := make([]byte, 10)
+		n, err := res.Body.Read(b)
+		assert.Check(t, err != nil)
+		assert.Check(t, cmp.Equal(n, 0))
+	})
+	t.Run("decoding can be opted out of", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL),
+			fourten.DecodeJSON)
+
+		server.Response.Body = `abcdef`
+
+		res, err := client.Derive(fourten.DontDecode).GET(ctx, "/data", nil)
+		assert.NilError(t, err)
+
+		body, err := ioutil.ReadAll(res.Body)
+		assert.NilError(t, err)
+		assert.Equal(t, string(body), "abcdef")
+	})
+
 	t.Run("Handles failed struct decodes correctly", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.DecodeJSON)
@@ -413,11 +469,9 @@ func TestStatusCodes(t *testing.T) {
 	t.Run("HTTP Status 204 is handled as non-error with no body", func(t *testing.T) {
 		server.Response = StubResponse{Status: 204}
 
-		var output map[string]interface{}
-		res, err := client.GET(ctx, "/ok", &output)
+		res, err := client.GET(ctx, "/ok", nil)
 		assert.NilError(t, err)
 		assert.Check(t, cmp.Equal(res.StatusCode, 204))
-		assert.Check(t, cmp.DeepEqual(output, map[string]interface{}(nil)))
 	})
 
 	redirectErrorCodes := []int{301, 302, 303, 307, 308}
@@ -429,7 +483,7 @@ func TestStatusCodes(t *testing.T) {
 			}
 			server.Response = serverResponse
 
-			res, err := client.GET(ctx, "/redirect", nil)
+			res, err := client.Derive(fourten.DontDecode).GET(ctx, "/redirect", nil)
 			assert.NilError(t, err)
 
 			assert.Check(t, cmp.Equal(server.Request.Method, "GET"))
@@ -445,7 +499,7 @@ func TestStatusCodes(t *testing.T) {
 			server.Sticky = true
 			defer func() { server.Sticky = false }()
 
-			res, err := client.GET(ctx, "/loop", nil)
+			res, err := client.Derive(fourten.DontDecode).GET(ctx, "/loop", nil)
 			assert.Check(t, res == nil)
 			assert.ErrorContains(t, err, "stopped after 10 redirects")
 		})
@@ -457,7 +511,7 @@ func TestStatusCodes(t *testing.T) {
 			}
 			server.Response = serverResponse
 
-			res, err := client.Derive(fourten.NoFollow).GET(ctx, "/redirect", nil)
+			res, err := client.Derive(fourten.NoFollow, fourten.DontDecode).GET(ctx, "/redirect", nil)
 
 			// We get an error value
 			assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", code)))
@@ -482,7 +536,7 @@ func TestStatusCodes(t *testing.T) {
 			server.Response = serverResponse
 
 			input := map[string]interface{}{"input": "json"}
-			res, err := client.Derive(fourten.EncodeJSON).POST(ctx, "/redirect", input, nil)
+			res, err := client.Derive(fourten.EncodeJSON, fourten.DontDecode).POST(ctx, "/redirect", input, nil)
 			assert.NilError(t, err)
 
 			assert.Check(t, cmp.Equal(server.Request.Method, "POST"))
@@ -507,7 +561,7 @@ func TestStatusCodes(t *testing.T) {
 			serverResponse := StubResponse{Status: code, Body: "WHOOPS"}
 			server.Response = serverResponse
 
-			res, err := client.GET(ctx, "/error", nil)
+			res, err := client.Derive(fourten.DontDecode).GET(ctx, "/error", nil)
 
 			// We get an error value
 			assert.Check(t, cmp.ErrorContains(err, fmt.Sprintf("HTTP Status %d", code)))
@@ -532,7 +586,7 @@ func TestStatusCodes(t *testing.T) {
 			}
 			server.Response = stubResponse
 
-			var output map[string]interface{}
+			var output interface{}
 			res, err := client.GET(ctx, "/error", &output)
 
 			// We get an error value
@@ -542,7 +596,7 @@ func TestStatusCodes(t *testing.T) {
 			// But the body has been consumed
 			assert.Check(t, bodyConsumed(res.Body))
 			// And output remains nil
-			assert.Check(t, cmp.DeepEqual(output, map[string]interface{}(nil)))
+			assert.Check(t, output == nil)
 
 			// The error can be compared against a sentinel
 			assert.Check(t, errors.Is(err, fourten.ErrHTTP))
@@ -657,6 +711,25 @@ func TestAsHTTPError(t *testing.T) {
 	})
 }
 
+func TestChunkedResponses(t *testing.T) {
+	client := fourten.New(fourten.BaseURL(server.URL), fourten.DecodeJSON)
+	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, "{")
+		_, _ = fmt.Fprint(w, `"json":true`)
+		for i := 0; i < 512; i++ {
+			// Pad out the response to trigger automatic response chunking
+			_, _ = fmt.Fprint(w, `    `)
+		}
+		_, _ = fmt.Fprint(w, "}")
+	})
+	var out map[string]bool
+	res, err := client.GET(ctx, server.URL+"/chunked", &out)
+	assert.NilError(t, err)
+	assert.Check(t, cmp.DeepEqual(res.TransferEncoding, []string{"chunked"}))
+	assert.Check(t, cmp.DeepEqual(out, map[string]bool{"json": true}))
+}
+
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
 	t.Helper()
 	assert.Assert(t, res != nil)
@@ -685,6 +758,8 @@ type RecordingServer struct {
 	Request http.Request
 	// Response is the next request we will return
 	Response StubResponse
+	// Handler provides custom server behaviour, instead of using Response
+	Handler http.Handler
 	// Sticky disables resetting the Response after each request
 	Sticky bool
 
@@ -715,22 +790,27 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	s.Request.Body = ioutil.NopCloser(bytes.NewReader(body))
 
-	if s.Delay != 0 {
-		time.Sleep(s.Delay)
-	}
-
-	h := w.Header()
-	for header, values := range s.Response.Headers {
-		for _, value := range values {
-			h.Add(header, value)
+	if s.Handler != nil {
+		s.Handler.ServeHTTP(w, r)
+	} else {
+		if s.Delay != 0 {
+			time.Sleep(s.Delay)
 		}
+
+		h := w.Header()
+		for header, values := range s.Response.Headers {
+			for _, value := range values {
+				h.Add(header, value)
+			}
+		}
+		w.WriteHeader(s.Response.Status)
+		_, _ = io.Copy(w, bytes.NewBufferString(s.Response.Body))
 	}
-	w.WriteHeader(s.Response.Status)
-	_, _ = io.Copy(w, bytes.NewBufferString(s.Response.Body))
 
 	// Reset stub after each call, unless we're being sticky
 	if !s.Sticky {
 		s.Delay = 0
 		s.Response = s.defaultResponse
+		s.Handler = nil
 	}
 }

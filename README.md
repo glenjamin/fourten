@@ -38,7 +38,7 @@ client := fourten.New(
     fourten.SetHeader("Authorization", "Bearer 1234567890"),
     fourten.Retry(3),
     fourten.ResponseTimeout(time.Second),
-    fourten.Observe(func(info *fourten.ReqInfo, req *http.Request) fourten.ResponseObserver {
+    fourten.Observe(func(info fourten.ReqInfo, req *http.Request) fourten.ResponseObserver {
         start := time.Now()
         return func(res *http.Response, err error) {
             metrics.Timer("http.request", time.Since(start), map[string]string{
@@ -93,7 +93,7 @@ derived := client.Derive(
     println(err, res, json)
 }
 
-// URL parameters can be filled in via optional additional parameters
+// URL parameters can be filled in via optional additional arguments
 {
     res, err := client.POST(ctx, "/items/:item-id", nil, nil, fourten.Param("item-id", "123456"))
     println(err, res, json)
@@ -106,7 +106,6 @@ TODO
 
 ## TODO
 
-* handle chunked transfer encoding responses
 * handle gzip server responses
 * allow gzipping client requests
 * ensure we handle connection errors properly

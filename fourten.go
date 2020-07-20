@@ -134,6 +134,11 @@ func jsonDecoder(contentType string, r io.Reader, target interface{}) error {
 	return nil
 }
 
+func DontDecode(c *Client) {
+	c.Request.Header.Del("Accept")
+	c.decoder = nil
+}
+
 // GET makes an HTTP request to the supplied target.
 // It is the responsibility of the caller to close the response body if output is nil
 func (c *Client) GET(ctx context.Context, target string, output interface{}) (*http.Response, error) {
@@ -159,6 +164,10 @@ func (c *Client) DELETE(ctx context.Context, target string, input, output interf
 }
 
 func (c *Client) Call(ctx context.Context, method, target string, input, output interface{}) (*http.Response, error) {
+	if output != nil && c.decoder == nil {
+		return nil, errors.New("output requested but no decoder configured")
+	}
+
 	req, err := c.buildRequest(method, target)
 	if err != nil {
 		return nil, err
@@ -180,8 +189,8 @@ func (c *Client) Call(ctx context.Context, method, target string, input, output 
 
 	httpErr := coerceHTTPError(res)
 
-	// non-nil output means we try output decoding
-	if output != nil {
+	// non-nil decoder means we are responsible for output decoding
+	if c.decoder != nil {
 		// when we handle output, we close body - otherwise it's up to the caller
 		defer res.Body.Close()
 
@@ -236,17 +245,23 @@ func (c *Client) setupEncoding(req *http.Request, input interface{}) error {
 }
 
 func handleDecoding(res *http.Response, decoder Decoder, output interface{}) error {
-	if decoder == nil {
-		return errors.New("output requested but no decoder configured")
-	}
-	// Only attempt to decode if we have a body
-	if res.ContentLength > 0 {
-		err := decoder(res.Header.Get("content-type"), res.Body, output)
-		if err != nil {
-			return err
+	switch {
+	// expected response but didn't get one
+	case res.Body == http.NoBody && output != nil:
+		return errors.New("unexpected empty response")
+	// didn't expect a response and didn't get one
+	case res.Body == http.NoBody && output == nil:
+		return nil
+	// got a response but don't care
+	case output == nil:
+		if _, err := io.Copy(ioutil.Discard, res.Body); err != nil {
+			return fmt.Errorf("failed to discard body: %w", err)
 		}
+		return nil
 	}
-	return nil
+
+	// Hand off to the decoder if we got this far
+	return decoder(res.Header.Get("content-type"), res.Body, output)
 }
 
 func coerceHTTPError(res *http.Response) *HTTPError {
