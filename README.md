@@ -106,14 +106,13 @@ TODO
 
 ## TODO
 
-* handle gzip server responses
 * allow gzipping client requests
 * ensure we handle connection errors properly
 * configure connection pooling - http://tleyden.github.io/blog/2016/11/21/tuning-the-go-http-client-library-for-load-testing/
 * url params
+* querystring params
 * Retries
 * O11y
-* fourten.DiscardBody
 * Docs
 
 ## License

@@ -2,6 +2,7 @@ package fourten_test
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NYTimes/gziphandler"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
 
@@ -746,6 +748,22 @@ func TestChunkedResponses(t *testing.T) {
 	assert.NilError(t, err)
 	assert.Check(t, cmp.DeepEqual(res.TransferEncoding, []string{"chunked"}))
 	assert.Check(t, cmp.DeepEqual(out, map[string]bool{"json": true}))
+}
+
+func TestGzippedResponses(t *testing.T) {
+	client := fourten.New(fourten.BaseURL(server.URL), fourten.DecodeJSON, fourten.RequestTimeout(time.Minute))
+	gzipWrapper, err := gziphandler.NewGzipLevelAndMinSize(gzip.BestSpeed, 1)
+	assert.NilError(t, err)
+	server.Handler = gzipWrapper(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"hello":"decompressed world"}`)
+	}))
+
+	var out map[string]string
+	res, err := client.GET(ctx, server.URL+"/gzipped", &out)
+	assert.NilError(t, err)
+	assert.Check(t, cmp.Equal(res.Uncompressed, true))
+	assert.Check(t, cmp.DeepEqual(out, map[string]string{"hello": "decompressed world"}))
 }
 
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
