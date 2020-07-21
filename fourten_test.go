@@ -751,7 +751,7 @@ func TestChunkedResponses(t *testing.T) {
 }
 
 func TestGzippedResponses(t *testing.T) {
-	client := fourten.New(fourten.BaseURL(server.URL), fourten.DecodeJSON, fourten.RequestTimeout(time.Minute))
+	client := fourten.New(fourten.BaseURL(server.URL), fourten.DecodeJSON)
 	gzipWrapper, err := gziphandler.NewGzipLevelAndMinSize(gzip.BestSpeed, 1)
 	assert.NilError(t, err)
 	server.Handler = gzipWrapper(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
