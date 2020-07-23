@@ -98,6 +98,11 @@ derived := client.Derive(
     res, err := client.POST(ctx, "/items/:item-id", nil, nil, fourten.Param("item-id", "123456"))
     println(err, res, json)
 }
+
+// Sending loads of data? gzip your bodies
+{
+	zippy := client.Derive(fourten.GzipRequests)
+}
 ```
 
 ## Docs
@@ -107,6 +112,7 @@ TODO
 ## TODO
 
 * allow gzipping client requests
+* change default user-agent
 * ensure we handle connection errors properly
 * configure connection pooling - http://tleyden.github.io/blog/2016/11/21/tuning-the-go-http-client-library-for-load-testing/
 * url params

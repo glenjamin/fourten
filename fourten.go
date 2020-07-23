@@ -2,6 +2,7 @@ package fourten
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -137,6 +138,32 @@ func jsonDecoder(contentType string, r io.Reader, target interface{}) error {
 func DontDecode(c *Client) {
 	c.Request.Header.Del("Accept")
 	c.decoder = nil
+}
+
+func GzipRequests(c *Client) {
+	encoder := c.encoder
+	// TODO: re-work encoders so headers can be set based on content?
+	// That way we'd be able to optionally not encode gzip if the body is too small
+	c.Request.Header.Set("Content-Encoding", "gzip")
+	c.encoder = func(input interface{}) (int64, func() (io.ReadCloser, error)) {
+		_, getBody := encoder(input)
+		r, err := getBody()
+		var buf bytes.Buffer
+		if err == nil {
+			gzw := gzip.NewWriter(&buf)
+			_, err = io.Copy(gzw, r)
+			if err == nil {
+				err = gzw.Close()
+			}
+		}
+		gzipGetBody := func() (io.ReadCloser, error) {
+			if err != nil {
+				return nil, err
+			}
+			return ioutil.NopCloser(bytes.NewReader(buf.Bytes())), nil
+		}
+		return int64(buf.Len()), gzipGetBody
+	}
 }
 
 // GET makes an HTTP request to the supplied target.

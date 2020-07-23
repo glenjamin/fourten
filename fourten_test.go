@@ -766,6 +766,25 @@ func TestGzippedResponses(t *testing.T) {
 	assert.Check(t, cmp.DeepEqual(out, map[string]string{"hello": "decompressed world"}))
 }
 
+func TestGzippedRequests(t *testing.T) {
+	client := fourten.New(fourten.BaseURL(server.URL), fourten.EncodeJSON, fourten.GzipRequests)
+	in := make([]string, 300)
+	for i := 0; i < len(in); i++ {
+		in[i] = "abc"
+	}
+	_, err := client.POST(ctx, server.URL+"/zippy", in, nil)
+	assert.NilError(t, err)
+
+	assert.Check(t, server.Request.ContentLength < 100)
+	assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Encoding"), "gzip"))
+	gr, err := gzip.NewReader(server.Request.Body)
+	assert.NilError(t, err)
+	var body []string
+	err = json.NewDecoder(gr).Decode(&body)
+	assert.NilError(t, err)
+	assert.Check(t, cmp.DeepEqual(in, body))
+}
+
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
 	t.Helper()
 	assert.Assert(t, res != nil)
