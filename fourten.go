@@ -29,8 +29,18 @@ type Client struct {
 // Option is used to apply changes to a Client in a neat manner
 type Option func(*Client)
 
-// Encoder is used to populate requests from input, the return value is compatible with http.Request.GetBody
-type Encoder func(input interface{}) (length int64, getBody func() (io.ReadCloser, error))
+// Encoder is used to populate requests from input
+type Encoder func(input interface{}) (RequestEncoding, error)
+
+// RequestEncoding is used to populate the outgoing http.Request
+type RequestEncoding struct {
+	// GetBody will be used to populate Request.Body and Request.GetBody
+	GetBody func() (io.ReadCloser, error)
+	// ContentLength should be set, or set to -1 if unknown
+	ContentLength int64
+	// Header can be used to overwrite any headers already in the Request
+	Header http.Header
+}
 
 // Decoder is used to populate target from the reader
 type Decoder func(contentType string, r io.Reader, target interface{}) error
@@ -106,19 +116,24 @@ func NoFollow(c *Client) {
 }
 
 func EncodeJSON(c *Client) {
-	SetHeader("Content-Type", "application/json; charset=utf-8")(c)
 	c.encoder = jsonEncoder
 }
-func jsonEncoder(input interface{}) (int64, func() (io.ReadCloser, error)) {
+func jsonEncoder(input interface{}) (RequestEncoding, error) {
 	// A little sleight of hand to ensure we only encode once, regardless of how many readers are needed
 	b := &bytes.Buffer{}
 	err := json.NewEncoder(b).Encode(input)
-	return int64(b.Len()), func() (io.ReadCloser, error) {
-		if err != nil {
-			return nil, fmt.Errorf("failed to encode: %w", err)
-		}
-		return ioutil.NopCloser(bytes.NewReader(b.Bytes())), nil
+	if err != nil {
+		return RequestEncoding{}, err
 	}
+	header := http.Header{}
+	header.Set("Content-Type", "application/json; charset=utf-8")
+	return RequestEncoding{
+		ContentLength: int64(b.Len()),
+		GetBody: func() (io.ReadCloser, error) {
+			return ioutil.NopCloser(bytes.NewReader(b.Bytes())), nil
+		},
+		Header: header,
+	}, nil
 }
 
 func DecodeJSON(c *Client) {
@@ -142,27 +157,34 @@ func DontDecode(c *Client) {
 
 func GzipRequests(c *Client) {
 	encoder := c.encoder
-	// TODO: re-work encoders so headers can be set based on content?
-	// That way we'd be able to optionally not encode gzip if the body is too small
-	c.Request.Header.Set("Content-Encoding", "gzip")
-	c.encoder = func(input interface{}) (int64, func() (io.ReadCloser, error)) {
-		_, getBody := encoder(input)
-		r, err := getBody()
-		var buf bytes.Buffer
-		if err == nil {
-			gzw := gzip.NewWriter(&buf)
-			_, err = io.Copy(gzw, r)
-			if err == nil {
-				err = gzw.Close()
-			}
+	c.encoder = func(input interface{}) (RequestEncoding, error) {
+		enc, err := encoder(input)
+		if err != nil {
+			return RequestEncoding{}, err
 		}
-		gzipGetBody := func() (io.ReadCloser, error) {
-			if err != nil {
-				return nil, err
-			}
+		// No point gzipping really small bodies
+		if enc.ContentLength < 1024 {
+			return enc, nil
+		}
+		r, err := enc.GetBody()
+		if err != nil {
+			return RequestEncoding{}, err
+		}
+		var buf bytes.Buffer
+		gzw := gzip.NewWriter(&buf)
+		if _, err = io.Copy(gzw, r); err != nil {
+			return RequestEncoding{}, err
+		}
+		if err = gzw.Close(); err != nil {
+			return RequestEncoding{}, err
+		}
+
+		enc.GetBody = func() (io.ReadCloser, error) {
 			return ioutil.NopCloser(bytes.NewReader(buf.Bytes())), nil
 		}
-		return int64(buf.Len()), gzipGetBody
+		enc.ContentLength = int64(buf.Len())
+		enc.Header.Set("Content-Encoding", "gzip")
+		return enc, nil
 	}
 }
 
@@ -261,7 +283,16 @@ func (c *Client) setupEncoding(req *http.Request, input interface{}) error {
 		if c.encoder == nil {
 			return errors.New("input requested but no encoder configured")
 		}
-		req.ContentLength, req.GetBody = c.encoder(input)
+		encoding, err := c.encoder(input)
+		if err != nil {
+			return fmt.Errorf("failed to encode %v: %w", input, err)
+		}
+		req.ContentLength = encoding.ContentLength
+		req.GetBody = encoding.GetBody
+		copyHeaders(req.Header, encoding.Header)
+		if req.Body, err = encoding.GetBody(); err != nil {
+			return fmt.Errorf("failed to read body from encoding of %v: %w", input, err)
+		}
 	} else {
 		req.ContentLength = 0
 		req.GetBody = func() (io.ReadCloser, error) { return http.NoBody, nil }
@@ -269,6 +300,12 @@ func (c *Client) setupEncoding(req *http.Request, input interface{}) error {
 	var err error
 	req.Body, err = req.GetBody()
 	return err
+}
+
+func copyHeaders(base http.Header, merge http.Header) {
+	for header, values := range merge {
+		base[header] = values
+	}
 }
 
 func handleDecoding(res *http.Response, decoder Decoder, output interface{}) error {

@@ -274,7 +274,7 @@ func TestEncoding(t *testing.T) {
 		_, err := client.POST(ctx, "/data", nil, nil)
 		assert.NilError(t, err)
 
-		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Type"), "application/json; charset=utf-8"))
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Type"), ""))
 		assert.Check(t, cmp.Equal(server.Request.Header.Get("Content-Length"), "0"))
 
 		requestBody, err := ioutil.ReadAll(server.Request.Body)
