@@ -111,12 +111,10 @@ TODO
 
 ## TODO
 
-* allow gzipping client requests
-* change default user-agent
 * ensure we handle connection errors properly
 * configure connection pooling - http://tleyden.github.io/blog/2016/11/21/tuning-the-go-http-client-library-for-load-testing/
-* url params
 * querystring params
+* url params
 * Retries
 * O11y
 * Docs

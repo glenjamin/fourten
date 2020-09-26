@@ -45,6 +45,8 @@ type RequestEncoding struct {
 // Decoder is used to populate target from the reader
 type Decoder func(contentType string, r io.Reader, target interface{}) error
 
+const defaultUserAgent = "fourten (Go HTTP Client)"
+
 // New constructs a Client, applying the specified options
 func New(opts ...Option) *Client {
 	c := &Client{
@@ -56,6 +58,7 @@ func New(opts ...Option) *Client {
 		timeout:    time.Second,
 		httpClient: &http.Client{},
 	}
+	c.Request.Header.Set("User-Agent", defaultUserAgent)
 	for _, opt := range opts {
 		opt(c)
 	}

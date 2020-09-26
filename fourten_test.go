@@ -71,6 +71,15 @@ func TestURLResolution(t *testing.T) {
 }
 
 func TestHeaders(t *testing.T) {
+	t.Run("Default user agent", func(t *testing.T) {
+		client := fourten.New(fourten.BaseURL(server.URL))
+
+		_, err := client.GET(ctx, "/ping", nil)
+		assert.NilError(t, err)
+
+		assert.Check(t, cmp.Equal(server.Request.Header.Get("User-Agent"), "fourten (Go HTTP Client)"))
+	})
+
 	t.Run("Can set headers", func(t *testing.T) {
 		client := fourten.New(fourten.BaseURL(server.URL),
 			fourten.SetHeader("Wibble", "Wobble"))
