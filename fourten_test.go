@@ -87,6 +87,13 @@ func TestParameters(t *testing.T) {
 
 		assert.DeepEqual(t, server.Request.URL.Query(), url.Values{"foo": {"bar"}, "wibble": {"wobble"}})
 	})
+	t.Run("Adding a query when the querystring is non-empty is an error", func(t *testing.T) {
+		_, err := client.GET(ctx, "/ping?a=123", nil, fourten.QueryMap(map[string]string{"foo": "bar"}))
+		assert.ErrorContains(t, err, "querystring")
+
+		_, err = client.GET(ctx, "/ping?a=123", nil, fourten.Query(url.Values{"foo": {"bar"}}))
+		assert.ErrorContains(t, err, "querystring")
+	})
 	t.Run("Can template URLs with parameters", func(t *testing.T) {
 		_, err := client.GET(ctx, "/user/:user-id/profile", nil, fourten.Param("user-id", "glenjamin"))
 		assert.NilError(t, err)
@@ -120,6 +127,15 @@ func TestParameters(t *testing.T) {
 
 		assert.Equal(t, server.Request.URL.Path, "/user/glenjamin/profile")
 		assert.DeepEqual(t, server.Request.URL.Query(), url.Values{"foo": {"bar"}, "wibble": {"wobble"}})
+	})
+	t.Run("Attempting to use a parameter which doesn't exist is an error", func(t *testing.T) {
+		_, err := client.GET(ctx, "/user/blah", nil, fourten.Param("user-id", "glenjamin"))
+		assert.ErrorContains(t, err, "parameter")
+		assert.ErrorContains(t, err, "user-id")
+
+		_, err = client.GET(ctx, "/user/blah", nil, fourten.IntParam("count", 123))
+		assert.ErrorContains(t, err, "parameter")
+		assert.ErrorContains(t, err, "count")
 	})
 }
 

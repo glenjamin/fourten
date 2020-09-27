@@ -106,6 +106,9 @@ type URLModifier func(u *url.URL) error
 
 func Query(values url.Values) URLModifier {
 	return func(u *url.URL) error {
+		if u.RawQuery != "" {
+			return errors.New("refusing to overwrite querystring with Query Values")
+		}
 		u.RawQuery = values.Encode()
 		return nil
 	}
@@ -113,6 +116,9 @@ func Query(values url.Values) URLModifier {
 
 func QueryMap(m map[string]string) URLModifier {
 	return func(u *url.URL) error {
+		if u.RawQuery != "" {
+			return errors.New("refusing to overwrite querystring with QueryMap")
+		}
 		values := url.Values{}
 		for k, v := range m {
 			values.Set(k, v)
@@ -124,13 +130,21 @@ func QueryMap(m map[string]string) URLModifier {
 
 func Param(k, v string) URLModifier {
 	return func(u *url.URL) error {
+		before := u.Path
 		u.Path = strings.ReplaceAll(u.Path, ":"+k, url.PathEscape(v))
+		if before == u.Path {
+			return fmt.Errorf("failed to find parameter %v", k)
+		}
 		return nil
 	}
 }
 func IntParam(k string, v int) URLModifier {
 	return func(u *url.URL) error {
+		before := u.Path
 		u.Path = strings.ReplaceAll(u.Path, ":"+k, url.PathEscape(fmt.Sprintf("%d", v)))
+		if before == u.Path {
+			return fmt.Errorf("failed to find parameter %v", k)
+		}
 		return nil
 	}
 }
