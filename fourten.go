@@ -102,6 +102,39 @@ func BaseURL(base string) Option {
 	}
 }
 
+type URLModifier func(u *url.URL) error
+
+func Query(values url.Values) URLModifier {
+	return func(u *url.URL) error {
+		u.RawQuery = values.Encode()
+		return nil
+	}
+}
+
+func QueryMap(m map[string]string) URLModifier {
+	return func(u *url.URL) error {
+		values := url.Values{}
+		for k, v := range m {
+			values.Set(k, v)
+		}
+		u.RawQuery = values.Encode()
+		return nil
+	}
+}
+
+func Param(k, v string) URLModifier {
+	return func(u *url.URL) error {
+		u.Path = strings.ReplaceAll(u.Path, ":"+k, url.PathEscape(v))
+		return nil
+	}
+}
+func IntParam(k string, v int) URLModifier {
+	return func(u *url.URL) error {
+		u.Path = strings.ReplaceAll(u.Path, ":"+k, url.PathEscape(fmt.Sprintf("%d", v)))
+		return nil
+	}
+}
+
 func SetHeader(header, value string) Option {
 	return func(c *Client) {
 		c.Request.Header.Set(header, value)
@@ -193,34 +226,34 @@ func GzipRequests(c *Client) {
 
 // GET makes an HTTP request to the supplied target.
 // It is the responsibility of the caller to close the response body if output is nil
-func (c *Client) GET(ctx context.Context, target string, output interface{}) (*http.Response, error) {
-	return c.Call(ctx, "GET", target, nil, output)
+func (c *Client) GET(ctx context.Context, target string, output interface{}, ums ...URLModifier) (*http.Response, error) {
+	return c.Call(ctx, "GET", target, nil, output, ums...)
 }
-func (c *Client) HEAD(ctx context.Context, target string) (*http.Response, error) {
-	return c.Call(ctx, "HEAD", target, nil, nil)
+func (c *Client) HEAD(ctx context.Context, target string, ums ...URLModifier) (*http.Response, error) {
+	return c.Call(ctx, "HEAD", target, nil, nil, ums...)
 }
-func (c *Client) OPTIONS(ctx context.Context, target string, output interface{}) (*http.Response, error) {
-	return c.Call(ctx, "OPTIONS", target, nil, output)
+func (c *Client) OPTIONS(ctx context.Context, target string, output interface{}, ums ...URLModifier) (*http.Response, error) {
+	return c.Call(ctx, "OPTIONS", target, nil, output, ums...)
 }
-func (c *Client) POST(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	return c.Call(ctx, "POST", target, input, output)
+func (c *Client) POST(ctx context.Context, target string, input, output interface{}, ums ...URLModifier) (*http.Response, error) {
+	return c.Call(ctx, "POST", target, input, output, ums...)
 }
-func (c *Client) PUT(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	return c.Call(ctx, "PUT", target, input, output)
+func (c *Client) PUT(ctx context.Context, target string, input, output interface{}, ums ...URLModifier) (*http.Response, error) {
+	return c.Call(ctx, "PUT", target, input, output, ums...)
 }
-func (c *Client) PATCH(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	return c.Call(ctx, "PATCH", target, input, output)
+func (c *Client) PATCH(ctx context.Context, target string, input, output interface{}, ums ...URLModifier) (*http.Response, error) {
+	return c.Call(ctx, "PATCH", target, input, output, ums...)
 }
-func (c *Client) DELETE(ctx context.Context, target string, input, output interface{}) (*http.Response, error) {
-	return c.Call(ctx, "DELETE", target, input, output)
+func (c *Client) DELETE(ctx context.Context, target string, input, output interface{}, ums ...URLModifier) (*http.Response, error) {
+	return c.Call(ctx, "DELETE", target, input, output, ums...)
 }
 
-func (c *Client) Call(ctx context.Context, method, target string, input, output interface{}) (*http.Response, error) {
+func (c *Client) Call(ctx context.Context, method, target string, input, output interface{}, ums ...URLModifier) (*http.Response, error) {
 	if output != nil && c.decoder == nil {
 		return nil, errors.New("output requested but no decoder configured")
 	}
 
-	req, err := c.buildRequest(method, target)
+	req, err := c.buildRequest(method, target, ums)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +298,7 @@ func (c *Client) Call(ctx context.Context, method, target string, input, output 
 	return res, nil
 }
 
-func (c *Client) buildRequest(method, target string) (*http.Request, error) {
+func (c *Client) buildRequest(method, target string, ums []URLModifier) (*http.Request, error) {
 	targetURL, err := url.Parse(target)
 	if err != nil {
 		return nil, err
@@ -275,6 +308,12 @@ func (c *Client) buildRequest(method, target string) (*http.Request, error) {
 		Method: method,
 		URL:    c.Request.URL.ResolveReference(targetURL),
 		Header: c.Request.Header.Clone(),
+	}
+
+	for _, um := range ums {
+		if err := um(req.URL); err != nil {
+			return nil, err
+		}
 	}
 
 	return req, nil

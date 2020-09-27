@@ -8,7 +8,7 @@ This library aims to provide a high-level interface for performing HTTP requests
 including key features for use in a production setting.
 
 It is my intention that you shouldn't need to drop down to lower level abstractions,
-but the libarary will allow you to if you so desire. 
+but the library will allow you to if you so desire.
 
 > Being abstract is something profoundly different from being vague …
 > The purpose of abstraction is not to be vague,
@@ -66,11 +66,12 @@ ctx := context.Background()
 
     // And can be cast into useful error types
     var httpErr *fourten.HttpError
-    errors.As(err, &httpErr) // true
-    json := make(map[string]interace{})
-    err := httpErr.Decode(json)
-    raw := httpErr.Body()
-    println(err, res, json, raw)
+    if errors.As(err, &httpErr) {
+        json := make(map[string]interace{})
+        err := httpErr.Decode(json)
+        raw := httpErr.Body()
+        println(err, res, json, raw)
+    }
 }
 
 // Derive new clients from the existing client's defaults as needed
@@ -111,10 +112,8 @@ TODO
 
 ## TODO
 
-* ensure we handle connection errors properly
+* ensure we handle connection errors & timeouts properly
 * configure connection pooling - http://tleyden.github.io/blog/2016/11/21/tuning-the-go-http-client-library-for-load-testing/
-* querystring params
-* url params
 * Retries
 * O11y
 * Docs

@@ -12,6 +12,7 @@ import (
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"testing"
 	"time"
@@ -67,6 +68,58 @@ func TestURLResolution(t *testing.T) {
 		assert.Assert(t, cmp.Panics(func() {
 			fourten.New(fourten.BaseURL(":/:/:"))
 		}))
+	})
+}
+
+func TestParameters(t *testing.T) {
+	client := fourten.New(fourten.BaseURL(server.URL))
+	t.Run("Can add querystring params via url.Values", func(t *testing.T) {
+		v := url.Values{"foo": {"bar"}, "wibble": {"wobble", "wubble"}}
+		_, err := client.GET(ctx, "/ping", nil, fourten.Query(v))
+		assert.NilError(t, err)
+
+		assert.DeepEqual(t, server.Request.URL.Query(), v)
+	})
+	t.Run("Can add querystring params via a map[string]string", func(t *testing.T) {
+		_, err := client.GET(ctx, "/ping", nil,
+			fourten.QueryMap(map[string]string{"foo": "bar", "wibble": "wobble"}))
+		assert.NilError(t, err)
+
+		assert.DeepEqual(t, server.Request.URL.Query(), url.Values{"foo": {"bar"}, "wibble": {"wobble"}})
+	})
+	t.Run("Can template URLs with parameters", func(t *testing.T) {
+		_, err := client.GET(ctx, "/user/:user-id/profile", nil, fourten.Param("user-id", "glenjamin"))
+		assert.NilError(t, err)
+
+		assert.Equal(t, server.Request.URL.Path, "/user/glenjamin/profile")
+	})
+	t.Run("Can template URLs with multiple parameters", func(t *testing.T) {
+		_, err := client.GET(ctx, "/blog/:slug/comment/:comment-id", nil,
+			fourten.Param("slug", "cycling-is-great"), fourten.Param("comment-id", "sdklfhewkf"))
+		assert.NilError(t, err)
+
+		assert.Equal(t, server.Request.URL.Path, "/blog/cycling-is-great/comment/sdklfhewkf")
+	})
+	t.Run("Can template URLs with numeric parameters", func(t *testing.T) {
+		_, err := client.GET(ctx, "/user/:user-id", nil, fourten.IntParam("user-id", 6723))
+		assert.NilError(t, err)
+
+		assert.Equal(t, server.Request.URL.Path, "/user/6723")
+	})
+	t.Run("Can template URLs with auto-escaping of parameters", func(t *testing.T) {
+		_, err := client.GET(ctx, "/user/:username", nil, fourten.Param("username", "a!/b c"))
+		assert.NilError(t, err)
+
+		assert.Equal(t, server.Request.URL.Path, "/user/a%21%2Fb%20c")
+	})
+	t.Run("Can template URLs and pass querystring at the same time", func(t *testing.T) {
+		_, err := client.GET(ctx, "/user/:user-id/profile", nil,
+			fourten.Param("user-id", "glenjamin"),
+			fourten.QueryMap(map[string]string{"foo": "bar", "wibble": "wobble"}))
+		assert.NilError(t, err)
+
+		assert.Equal(t, server.Request.URL.Path, "/user/glenjamin/profile")
+		assert.DeepEqual(t, server.Request.URL.Query(), url.Values{"foo": {"bar"}, "wibble": {"wobble"}})
 	})
 }
 
@@ -363,7 +416,7 @@ func TestMethods(t *testing.T) {
 	t.Run("without bodies", func(t *testing.T) {
 		tests := []struct {
 			method string
-			fn     func(context.Context, string, interface{}) (*http.Response, error)
+			fn     func(context.Context, string, interface{}, ...fourten.URLModifier) (*http.Response, error)
 		}{
 			{"GET", client.GET},
 			{"OPTIONS", client.OPTIONS},
@@ -383,7 +436,7 @@ func TestMethods(t *testing.T) {
 	t.Run("without bodies but with decoding", func(t *testing.T) {
 		tests := []struct {
 			method string
-			fn     func(context.Context, string, interface{}) (*http.Response, error)
+			fn     func(context.Context, string, interface{}, ...fourten.URLModifier) (*http.Response, error)
 		}{
 			{"GET", client.GET},
 			{"OPTIONS", client.OPTIONS},
@@ -408,14 +461,14 @@ func TestMethods(t *testing.T) {
 	t.Run("with bodies", func(t *testing.T) {
 		tests := []struct {
 			method string
-			fn     func(context.Context, string, interface{}, interface{}) (*http.Response, error)
+			fn     func(context.Context, string, interface{}, interface{}, ...fourten.URLModifier) (*http.Response, error)
 		}{
 			{"POST", client.POST},
 			{"PUT", client.PUT},
 			{"PATCH", client.PATCH},
 			{"DELETE", client.DELETE},
-			{"ANYTHING", func(ctx context.Context, s string, i, o interface{}) (*http.Response, error) {
-				return client.Call(ctx, "ANYTHING", s, i, nil)
+			{"ANYTHING", func(ctx context.Context, s string, i, o interface{}, ums ...fourten.URLModifier) (*http.Response, error) {
+				return client.Call(ctx, "ANYTHING", s, i, nil, ums...)
 			}},
 		}
 		for _, test := range tests {
@@ -440,14 +493,14 @@ func TestMethods(t *testing.T) {
 	t.Run("with bodies and decoding", func(t *testing.T) {
 		tests := []struct {
 			method string
-			fn     func(context.Context, string, interface{}, interface{}) (*http.Response, error)
+			fn     func(context.Context, string, interface{}, interface{}, ...fourten.URLModifier) (*http.Response, error)
 		}{
 			{"POST", client.POST},
 			{"PUT", client.PUT},
 			{"PATCH", client.PATCH},
 			{"DELETE", client.DELETE},
-			{"ANYTHING", func(ctx context.Context, s string, i, o interface{}) (*http.Response, error) {
-				return client.Call(ctx, "ANYTHING", s, i, o)
+			{"ANYTHING", func(ctx context.Context, s string, i, o interface{}, ums ...fourten.URLModifier) (*http.Response, error) {
+				return client.Call(ctx, "ANYTHING", s, i, o, ums...)
 			}},
 		}
 		for _, test := range tests {
