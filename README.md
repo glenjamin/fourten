@@ -36,7 +36,7 @@ client := fourten.New(
     fourten.BaseURL("https://reqres.in/api"),
     fourten.DecodeJSON,
     fourten.SetHeader("Authorization", "Bearer 1234567890"),
-    fourten.Retry(3),
+    fourten.RetryMaxAttempts(3),
     fourten.ResponseTimeout(time.Second),
     fourten.Observe(func(info fourten.ReqInfo, req *http.Request) fourten.ResponseObserver {
         start := time.Now()
@@ -78,6 +78,25 @@ ctx := context.Background()
 derived := client.Derive(
     fourten.DontRetry,
     fourten.EncodeJSON,
+)
+
+// Retry behaviour is fully customizable
+retrying := client.Derive(
+    fourten.RetryStrategy(func() fourten.Retrier {
+        attempts := 0
+        return func(err error) time.Duration {
+            if attempt +=1; attempt > 3 {
+                return -1
+            }
+            if httpErr := fourten.AsHTTPError(err); httpErr != nil {
+                if httpErr.Response.StatusCode >= 500 {
+                    return 200 * time.Millisecond
+                }
+                return -1
+            }
+            return time.Second
+        }
+    }),
 )
 
 // Make POST requests with request encoding and body decoding
