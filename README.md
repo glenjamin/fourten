@@ -38,13 +38,13 @@ client := fourten.New(
     fourten.SetHeader("Authorization", "Bearer 1234567890"),
     fourten.RetryMaxAttempts(3),
     fourten.ResponseTimeout(time.Second),
-    fourten.Observe(func(info fourten.ReqInfo, req *http.Request) fourten.ResponseObserver {
+    fourten.Observe(func(req fourten.RequestInfo) fourten.ResponseObserver {
         start := time.Now()
-        return func(res *http.Response, err error) {
+        return func(res fourten.ResponseInfo) {
             metrics.Timer("http.request", time.Since(start), map[string]string{
-                "error": String(err != nil),
+                "error": String(res.err != nil),
                 "status": res.StatusCode,
-                "route": info.Target,
+                "route": req.Target,
             })
         }
     }),
@@ -80,25 +80,6 @@ derived := client.Derive(
     fourten.EncodeJSON,
 )
 
-// Retry behaviour is fully customizable
-retrying := client.Derive(
-    fourten.RetryStrategy(func() fourten.Retrier {
-        attempts := 0
-        return func(err error) time.Duration {
-            if attempt +=1; attempt > 3 {
-                return -1
-            }
-            if httpErr := fourten.AsHTTPError(err); httpErr != nil {
-                if httpErr.Response.StatusCode >= 500 {
-                    return 200 * time.Millisecond
-                }
-                return -1
-            }
-            return time.Second
-        }
-    }),
-)
-
 // Make POST requests with request encoding and body decoding
 {
     input = map[string]interface{}{"abc": "def"}
@@ -123,6 +104,33 @@ retrying := client.Derive(
 {
 	zippy := client.Derive(fourten.GzipRequests)
 }
+
+// Retries are off by default, but can be enabled and configured
+retrying := client.Derive(
+    fourten.RetryMaxAttempts(3),
+    fourten.RetryMaxDuration(5 * time.Second),
+    // initial delay, max delay, iteration multiplier, jitter factor
+    fourten.RetryBackoff(200 * time.Millisecond, time.Second, 2, 0.1)
+)
+
+// Or you can supply completely custom retry logic
+retrying := client.Derive(
+    fourten.RetryStrategy(func() fourten.Retrier {
+        attempts := 0
+        return func(err error) time.Duration {
+            if attempt += 1; attempt > 3 {
+                return -1
+            }
+            if httpErr := fourten.AsHTTPError(err); httpErr != nil {
+                if httpErr.Response.StatusCode >= 500 {
+                    return 200 * time.Millisecond
+                }
+                return -1
+            }
+            return time.Second
+        }
+    }),
+)
 ```
 
 ## Docs
