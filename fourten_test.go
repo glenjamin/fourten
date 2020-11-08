@@ -14,12 +14,14 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/NYTimes/gziphandler"
 	"gotest.tools/v3/assert"
 	"gotest.tools/v3/assert/cmp"
+	"gotest.tools/v3/assert/opt"
 
 	"github.com/glenjamin/fourten"
 )
@@ -595,7 +597,7 @@ func TestStatusCodes(t *testing.T) {
 			}
 			server.Response = serverResponse
 			server.Sticky = true
-			defer func() { server.Sticky = false }()
+			defer server.Reset()
 
 			res, err := client.Derive(fourten.DontDecode).GET(ctx, "/loop", nil)
 			assert.Check(t, res == nil)
@@ -822,7 +824,7 @@ func TestChunkedResponses(t *testing.T) {
 		_, _ = fmt.Fprint(w, "}")
 	})
 	var out map[string]bool
-	res, err := client.GET(ctx, server.URL+"/chunked", &out)
+	res, err := client.GET(ctx, "/chunked", &out)
 	assert.NilError(t, err)
 	assert.Check(t, cmp.DeepEqual(res.TransferEncoding, []string{"chunked"}))
 	assert.Check(t, cmp.DeepEqual(out, map[string]bool{"json": true}))
@@ -838,7 +840,7 @@ func TestGzippedResponses(t *testing.T) {
 	}))
 
 	var out map[string]string
-	res, err := client.GET(ctx, server.URL+"/gzipped", &out)
+	res, err := client.GET(ctx, "/gzipped", &out)
 	assert.NilError(t, err)
 	assert.Check(t, cmp.Equal(res.Uncompressed, true))
 	assert.Check(t, cmp.DeepEqual(out, map[string]string{"hello": "decompressed world"}))
@@ -850,7 +852,7 @@ func TestGzippedRequests(t *testing.T) {
 	for i := 0; i < len(in); i++ {
 		in[i] = "abc"
 	}
-	_, err := client.POST(ctx, server.URL+"/zippy", in, nil)
+	_, err := client.POST(ctx, "/zippy", in, nil)
 	assert.NilError(t, err)
 
 	assert.Check(t, server.Request.ContentLength < 100)
@@ -861,6 +863,216 @@ func TestGzippedRequests(t *testing.T) {
 	err = json.NewDecoder(gr).Decode(&body)
 	assert.NilError(t, err)
 	assert.Check(t, cmp.DeepEqual(in, body))
+}
+
+func TestRetries(t *testing.T) {
+	server.Sticky = true
+	defer server.Reset()
+
+	handlers := map[string]http.Handler{}
+	requestTimes := map[string][]time.Time{}
+	mu := &sync.Mutex{}
+	requests := func(path string) []time.Time {
+		mu.Lock()
+		defer mu.Unlock()
+		return requestTimes[path]
+	}
+	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		requestTimes[r.URL.Path] = append(requestTimes[r.URL.Path], time.Now())
+		if handler, ok := handlers[r.URL.Path]; ok {
+			mu.Unlock()
+			handler.ServeHTTP(w, r)
+		} else {
+			mu.Unlock()
+			w.WriteHeader(500)
+		}
+	})
+
+	client := fourten.New(fourten.BaseURL(server.URL))
+
+	t.Run("retry behaviour", func(t *testing.T) {
+		t.Run("does not retry failed requests by default", func(t *testing.T) {
+			t.Parallel()
+			_, _ = client.GET(ctx, "/off", nil)
+			assert.Assert(t, cmp.Len(requests("/off"), 1))
+		})
+		t.Run("enabling retries defaults to a reasonable policy", func(t *testing.T) {
+			t.Parallel()
+			_, _ = client.Derive(
+				fourten.RetryOnError, fourten.RetrySpeedupFactor(10),
+			).GET(ctx, "/default", nil)
+
+			reqs := requests("/default")
+			assert.Assert(t, cmp.Len(reqs, 3))
+
+			wait1 := reqs[1].Sub(reqs[0])
+			wait2 := reqs[2].Sub(reqs[1])
+			assert.Check(t, wait2 > wait1, "gap between requests increases: %q %q", wait1, wait2)
+		})
+		t.Run("tuning max number of requests", func(t *testing.T) {
+			t.Parallel()
+			_, _ = client.Derive(
+				fourten.RetryOnError,
+				fourten.RetryMaxAttempts(5),
+				fourten.RetrySpeedupFactor(10),
+			).GET(ctx, "/max-num", nil)
+
+			reqs := requests("/max-num")
+			assert.Assert(t, cmp.Len(reqs, 5))
+
+			wait1 := reqs[1].Sub(reqs[0])
+			wait2 := reqs[2].Sub(reqs[1])
+			wait3 := reqs[3].Sub(reqs[2])
+			wait4 := reqs[4].Sub(reqs[3])
+			assert.Check(t, wait2 > wait1, "gap between requests increases")
+			assert.Check(t, wait3 > wait2, "gap between requests increases")
+			assert.Check(t, wait4 > wait3, "gap between requests increases")
+		})
+		t.Run("speedup factor helps with testing", func(t *testing.T) {
+			t.Parallel()
+			_, _ = client.Derive(
+				fourten.RetryOnError, fourten.RetryMaxAttempts(2),
+				fourten.RetrySpeedupFactor(10),
+			).GET(ctx, "/speedup", nil)
+			reqs := requests("/speedup")
+			assert.Assert(t, cmp.Len(reqs, 2))
+			wait := reqs[1].Sub(reqs[0])
+
+			assert.Check(t, wait < 10*time.Millisecond, "expected %q < 2ms", wait)
+		})
+		t.Run("tuning max duration of retrying", func(t *testing.T) {
+			t.Parallel()
+			_, _ = client.Derive(
+				fourten.RetryOnError,
+				fourten.RetryMaxDuration(90*time.Millisecond),
+			).GET(ctx, "/max-duration", nil)
+
+			assert.Assert(t, cmp.Len(requests("/max-duration"), 2))
+		})
+		t.Run("tuning the exponential backoff", func(t *testing.T) {
+			t.Parallel()
+			_, _ = client.Derive(
+				fourten.RetryOnError,
+				fourten.RetryMaxAttempts(4),
+				fourten.RetryBackoff(10*time.Millisecond, 30*time.Millisecond, 3, 0.1),
+			).GET(ctx, "/backoff", nil)
+
+			reqs := requests("/backoff")
+			assert.Assert(t, cmp.Len(reqs, 4))
+
+			assert.Check(t, cmp.DeepEqual([]time.Duration{
+				reqs[1].Sub(reqs[0]),
+				reqs[2].Sub(reqs[1]),
+				reqs[3].Sub(reqs[2]),
+			}, []time.Duration{
+				10 * time.Millisecond,
+				30 * time.Millisecond,
+				30 * time.Millisecond,
+			}, opt.DurationWithThreshold(10*time.Millisecond)))
+		})
+		t.Run("using a fixed backoff", func(t *testing.T) {
+			t.Parallel()
+			_, _ = client.Derive(
+				fourten.RetryOnError,
+				fourten.RetryDelay(30*time.Millisecond),
+			).GET(ctx, "/fixed", nil)
+
+			reqs := requests("/fixed")
+			assert.Assert(t, cmp.Len(reqs, 3))
+
+			assert.Check(t, cmp.DeepEqual([]time.Duration{
+				reqs[1].Sub(reqs[0]),
+				reqs[2].Sub(reqs[1]),
+			}, []time.Duration{
+				30 * time.Millisecond,
+				30 * time.Millisecond,
+			}, opt.DurationWithThreshold(10*time.Millisecond)))
+		})
+		t.Run("if retries are not enabled, tuning fails", func(t *testing.T) {
+			t.Parallel()
+			assert.Check(t, cmp.Panics(func() {
+				_ = client.Derive(fourten.RetryMaxAttempts(1))
+			}))
+			assert.Check(t, cmp.Panics(func() {
+				_ = client.Derive(fourten.RetryMaxDuration(0))
+			}))
+			assert.Check(t, cmp.Panics(func() {
+				_ = client.Derive(fourten.RetryBackoff(0, 0, 0, 0))
+			}))
+			assert.Check(t, cmp.Panics(func() {
+				_ = client.Derive(fourten.RetryDelay(0))
+			}))
+		})
+		t.Run("deriving different retries from one root", func(t *testing.T) {
+			t.Parallel()
+			retrying := client.Derive(fourten.RetryOnError, fourten.RetryDelay(time.Nanosecond))
+			maxTwo := retrying.Derive(fourten.RetryMaxAttempts(2))
+			maxFour := retrying.Derive(fourten.RetryMaxAttempts(4))
+
+			_, _ = retrying.GET(ctx, "/retrying", nil)
+			_, _ = maxTwo.GET(ctx, "/max-two", nil)
+			_, _ = maxFour.GET(ctx, "/max-four", nil)
+
+			assert.Assert(t, cmp.Len(requests("/retrying"), 3))
+			assert.Assert(t, cmp.Len(requests("/max-two"), 2))
+			assert.Assert(t, cmp.Len(requests("/max-four"), 4))
+		})
+		t.Run("multiple requests use distinct backoffs", func(t *testing.T) {
+			t.Parallel()
+			retrying := client.Derive(fourten.RetryOnError,
+				fourten.RetryMaxAttempts(2),
+				fourten.RetryDelay(100*time.Millisecond))
+
+			_, _ = retrying.GET(ctx, "/multi-1", nil)
+			_, _ = retrying.GET(ctx, "/multi-2", nil)
+
+			assert.Assert(t, cmp.Len(requests("/multi-1"), 2))
+			assert.Assert(t, cmp.Len(requests("/multi-2"), 2))
+		})
+		t.Run("request timeout applies to each individual retry", func(t *testing.T) {
+			t.Parallel()
+			retrying := client.Derive(fourten.RetryOnError,
+				fourten.RetryMaxAttempts(2),
+				fourten.RetryDelay(0),
+				fourten.RequestTimeout(40*time.Millisecond))
+
+			handlers["/timeout"] = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				time.Sleep(100 * time.Millisecond)
+				w.WriteHeader(200)
+			})
+
+			_, _ = retrying.GET(ctx, "/timeout", nil)
+
+			reqs := requests("/timeout")
+			assert.Assert(t, cmp.Len(reqs, 2))
+			assert.Check(t, cmp.DeepEqual(reqs[1].Sub(reqs[0]), 40*time.Millisecond,
+				opt.DurationWithThreshold(10*time.Millisecond)))
+		})
+	})
+	t.Run("what gets retried", func(t *testing.T) {
+		t.Run("doesn't retry 2xx", func(t *testing.T) {
+
+		})
+		t.Run("doesn't retry 3xx", func(t *testing.T) {
+
+		})
+		t.Run("doesn't retry 4xx", func(t *testing.T) {
+
+		})
+		t.Run("does retry 5xx", func(t *testing.T) {
+
+		})
+		t.Run("does retry connection errors", func(t *testing.T) {
+
+		})
+		t.Run("doesn't retry programmer errors", func(t *testing.T) {
+
+		})
+	})
+	t.Run("custom retry behaviour", func(t *testing.T) {
+
+	})
 }
 
 func assertResponse(t *testing.T, res *http.Response, want StubResponse) {
@@ -897,6 +1109,8 @@ type RecordingServer struct {
 	Sticky bool
 
 	defaultResponse StubResponse
+
+	mu *sync.Mutex
 }
 type StubResponse struct {
 	Status  int
@@ -909,12 +1123,14 @@ func NewServer(defaultResponse StubResponse) *RecordingServer {
 	recording := &RecordingServer{
 		Response:        defaultResponse,
 		defaultResponse: defaultResponse,
+		mu:              &sync.Mutex{},
 	}
 	server := httptest.NewServer(recording)
 	recording.URL = server.URL
 	return recording
 }
 func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
 	// Copy the request, preserving the body
 	s.Request = *r
 	body, err := ioutil.ReadAll(r.Body)
@@ -924,8 +1140,11 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.Request.Body = ioutil.NopCloser(bytes.NewReader(body))
 
 	if s.Handler != nil {
+		s.mu.Unlock()
 		s.Handler.ServeHTTP(w, r)
 	} else {
+		defer s.mu.Unlock()
+
 		if s.Delay != 0 {
 			time.Sleep(s.Delay)
 		}
@@ -942,8 +1161,13 @@ func (s *RecordingServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	// Reset stub after each call, unless we're being sticky
 	if !s.Sticky {
-		s.Delay = 0
-		s.Response = s.defaultResponse
-		s.Handler = nil
+		s.Reset()
 	}
+}
+
+func (s *RecordingServer) Reset() {
+	s.Sticky = false
+	s.Delay = 0
+	s.Response = s.defaultResponse
+	s.Handler = nil
 }

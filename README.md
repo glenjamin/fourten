@@ -107,10 +107,13 @@ derived := client.Derive(
 
 // Retries are off by default, but can be enabled and configured
 retrying := client.Derive(
+    fourten.RetryOnError,
     fourten.RetryMaxAttempts(3),
     fourten.RetryMaxDuration(5 * time.Second),
     // initial delay, max delay, iteration multiplier, jitter factor
     fourten.RetryBackoff(200 * time.Millisecond, time.Second, 2, 0.1)
+    // to help with automated testing, you can speed things up
+    fourten.RetrySpeedupFactor(10)
 )
 
 // Or you can supply completely custom retry logic

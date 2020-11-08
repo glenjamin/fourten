@@ -13,7 +13,11 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
+
+const defaultUserAgent = "fourten (Go HTTP Client)"
 
 // Client represents a usable HTTP client, it should be initialised with New()
 type Client struct {
@@ -23,6 +27,10 @@ type Client struct {
 	timeout time.Duration
 	encoder Encoder
 	decoder Decoder
+	// retrierFactory will be used to creates a per-request Retrier
+	retrierFactory RetrierFactory
+	// retrierSpeedup will be divided by the retry delay before waiting, to help speed up tests
+	retrierSpeedup int
 
 	httpClient *http.Client
 }
@@ -46,7 +54,14 @@ type RequestEncoding struct {
 // Decoder is used to populate target from the reader
 type Decoder func(contentType string, r io.Reader, target interface{}) error
 
-const defaultUserAgent = "fourten (Go HTTP Client)"
+// Retrier is used to decide whether a request should be retried
+// a return value of -1 indicates a request should not be retried
+type Retrier func(err error) time.Duration
+
+// RetrierFactory is used to create a Retrier for each request
+type RetrierFactory interface {
+	NewRetrier() Retrier
+}
 
 // New constructs a Client, applying the specified options
 func New(opts ...Option) *Client {
@@ -68,12 +83,14 @@ func (c *Client) Derive(opts ...Option) *Client {
 	httpClient := *c.httpClient
 
 	derived := &Client{
-		url:        c.url.ResolveReference(&url.URL{}),
-		headers:    c.headers.Clone(),
-		timeout:    c.timeout,
-		encoder:    c.encoder,
-		decoder:    c.decoder,
-		httpClient: &httpClient,
+		url:            c.url.ResolveReference(&url.URL{}),
+		headers:        c.headers.Clone(),
+		timeout:        c.timeout,
+		encoder:        c.encoder,
+		decoder:        c.decoder,
+		retrierFactory: c.retrierFactory,
+		retrierSpeedup: c.retrierSpeedup,
+		httpClient:     &httpClient,
 	}
 	for _, opt := range opts {
 		opt(derived)
@@ -233,6 +250,81 @@ func GzipRequests(c *Client) {
 	}
 }
 
+func RetrySpeedupFactor(n int) Option {
+	return func(c *Client) {
+		c.retrierSpeedup = n
+	}
+}
+func RetryOnError(c *Client) {
+	c.retrierFactory = newBuiltinRetrierFactory()
+}
+func RetryMaxAttempts(n uint64) Option {
+	return updateBuiltinRetrier(func(rf *builtinRetrierFactory) {
+		rf.maxAttempts = n
+	})
+}
+func RetryMaxDuration(d time.Duration) Option {
+	return updateBuiltinRetrier(func(rf *builtinRetrierFactory) {
+		rf.backoff.MaxElapsedTime = d
+	})
+}
+func RetryBackoff(initial time.Duration, max time.Duration, multiplier, jitter float64) Option {
+	return updateBuiltinRetrier(func(rf *builtinRetrierFactory) {
+		rf.backoff.InitialInterval = initial
+		rf.backoff.MaxInterval = max
+		rf.backoff.Multiplier = multiplier
+		rf.backoff.RandomizationFactor = jitter
+	})
+}
+func RetryDelay(delay time.Duration) Option {
+	return updateBuiltinRetrier(func(rf *builtinRetrierFactory) {
+		rf.backoff.InitialInterval = delay
+		rf.backoff.MaxInterval = delay
+		rf.backoff.Multiplier = 1
+		rf.backoff.RandomizationFactor = 0
+	})
+}
+
+type builtinRetrierFactory struct {
+	maxAttempts uint64
+	backoff     backoff.ExponentialBackOff
+}
+
+func newBuiltinRetrierFactory() builtinRetrierFactory {
+	return builtinRetrierFactory{
+		maxAttempts: 3,
+		backoff: backoff.ExponentialBackOff{
+			InitialInterval:     50 * time.Millisecond,
+			RandomizationFactor: 0.1,
+			Multiplier:          2,
+			MaxInterval:         time.Second,
+			MaxElapsedTime:      10 * time.Second,
+			Stop:                backoff.Stop,
+			Clock:               backoff.SystemClock,
+		},
+	}
+}
+
+func updateBuiltinRetrier(update func(rf *builtinRetrierFactory)) Option {
+	return func(c *Client) {
+		rf := c.retrierFactory.(builtinRetrierFactory)
+		update(&rf)
+		c.retrierFactory = rf
+	}
+}
+
+func (b builtinRetrierFactory) NewRetrier() Retrier {
+	exp := b.backoff // make a per-request copy
+	exp.Reset()
+	bk := backoff.WithMaxRetries(&exp, b.maxAttempts-1)
+	return func(err error) time.Duration {
+		if err != nil {
+			return bk.NextBackOff()
+		}
+		return -1
+	}
+}
+
 // GET makes an HTTP request to the supplied target.
 // It is the responsibility of the caller to close the response body if output is nil
 func (c *Client) GET(ctx context.Context, target string, output interface{}, ums ...URLModifier) (*http.Response, error) {
@@ -262,6 +354,25 @@ func (c *Client) Call(ctx context.Context, method, target string, input, output 
 		return nil, errors.New("output requested but no decoder configured")
 	}
 
+	if c.retrierFactory == nil {
+		return c.EachCall(ctx, method, target, input, output, ums...)
+	}
+
+	retrier := c.retrierFactory.NewRetrier()
+	for {
+		res, err := c.EachCall(ctx, method, target, input, output, ums...)
+		delay := retrier(err)
+		if delay == -1 {
+			return res, err
+		}
+		if c.retrierSpeedup != 0 {
+			delay = delay / time.Duration(c.retrierSpeedup)
+		}
+		time.Sleep(delay)
+	}
+}
+
+func (c *Client) EachCall(ctx context.Context, method, target string, input, output interface{}, ums ...URLModifier) (*http.Response, error) {
 	req, err := c.buildRequest(method, target, ums)
 	if err != nil {
 		return nil, err
