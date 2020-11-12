@@ -313,12 +313,24 @@ func updateBuiltinRetrier(update func(rf *builtinRetrierFactory)) Option {
 	}
 }
 
+func RetryableError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if hErr := AsHTTPError(err); hErr != nil {
+		if hErr.Response.StatusCode < 500 {
+			return false
+		}
+	}
+	return true
+}
+
 func (b builtinRetrierFactory) NewRetrier() Retrier {
 	exp := b.backoff // make a per-request copy
 	exp.Reset()
 	bk := backoff.WithMaxRetries(&exp, b.maxAttempts-1)
 	return func(err error) time.Duration {
-		if err != nil {
+		if RetryableError(err) {
 			return bk.NextBackOff()
 		}
 		return -1

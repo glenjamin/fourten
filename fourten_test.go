@@ -805,7 +805,7 @@ func TestAsHTTPError(t *testing.T) {
 		assert.Check(t, cmp.Equal(httpErr, err.(*fourten.HTTPError)))
 	})
 	t.Run("returns nil if not passed an HTTPError", func(t *testing.T) {
-		var err error = errors.New("not an http error")
+		var err = errors.New("not an http error")
 		httpErr := fourten.AsHTTPError(err)
 		assert.Check(t, httpErr == nil)
 	})
@@ -879,7 +879,7 @@ func TestRetries(t *testing.T) {
 	}
 	server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
-		requestTimes[r.URL.Path] = append(requestTimes[r.URL.Path], time.Now())
+		requestTimes[r.URL.RequestURI()] = append(requestTimes[r.URL.RequestURI()], time.Now())
 		if handler, ok := handlers[r.URL.Path]; ok {
 			mu.Unlock()
 			handler.ServeHTTP(w, r)
@@ -1049,19 +1049,63 @@ func TestRetries(t *testing.T) {
 			assert.Check(t, cmp.DeepEqual(reqs[1].Sub(reqs[0]), 40*time.Millisecond,
 				opt.DurationWithThreshold(10*time.Millisecond)))
 		})
+		t.Run("retry re-sends request body", func(t *testing.T) {
+			t.Fatalf("TODO")
+		})
 	})
 	t.Run("what gets retried", func(t *testing.T) {
+		retrier := client.Derive(fourten.RetryOnError,
+			fourten.NoFollow,
+			fourten.RetryMaxAttempts(2),
+			fourten.RetryDelay(0))
+		handlers["/status"] = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			status, err := strconv.Atoi(r.URL.RawQuery)
+			if err != nil {
+				panic(err)
+			}
+			w.Header().Set("Location", "somewhere")
+			w.WriteHeader(status)
+		})
+		countReqs := func(path string) int {
+			_, _ = retrier.GET(ctx, path, nil)
+			return len(requests(path))
+		}
+		doesRetry := func(path string) cmp.Comparison {
+			return func() cmp.Result {
+				if countReqs(path) > 1 {
+					return cmp.ResultSuccess
+				}
+				return cmp.ResultFailure(fmt.Sprintf("expected %s to retry", path))
+			}
+		}
+		doesNotRetry := func(path string) cmp.Comparison {
+			return func() cmp.Result {
+				n := countReqs(path)
+				if n == 1 {
+					return cmp.ResultSuccess
+				}
+				return cmp.ResultFailure(fmt.Sprintf("expected %s to not retry, got %d requests", path, n))
+			}
+		}
 		t.Run("doesn't retry 2xx", func(t *testing.T) {
-
+			for _, status := range []int{200, 201} {
+				assert.Check(t, doesNotRetry(fmt.Sprintf("/status?%d", status)))
+			}
 		})
 		t.Run("doesn't retry 3xx", func(t *testing.T) {
-
+			for _, status := range []int{301, 302} {
+				assert.Check(t, doesNotRetry(fmt.Sprintf("/status?%d", status)))
+			}
 		})
 		t.Run("doesn't retry 4xx", func(t *testing.T) {
-
+			for _, status := range []int{400, 401, 403, 404} {
+				assert.Check(t, doesNotRetry(fmt.Sprintf("/status?%d", status)))
+			}
 		})
 		t.Run("does retry 5xx", func(t *testing.T) {
-
+			for _, status := range []int{500} {
+				assert.Check(t, doesRetry(fmt.Sprintf("/status?%d", status)))
+			}
 		})
 		t.Run("does retry connection errors", func(t *testing.T) {
 
