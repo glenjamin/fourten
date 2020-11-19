@@ -17,7 +17,8 @@ import (
 
 // Client represents a usable HTTP client, it should be initialised with New()
 type Client struct {
-	Request *http.Request
+	url     *url.URL
+	headers http.Header
 
 	timeout time.Duration
 	encoder Encoder
@@ -50,15 +51,12 @@ const defaultUserAgent = "fourten (Go HTTP Client)"
 // New constructs a Client, applying the specified options
 func New(opts ...Option) *Client {
 	c := &Client{
-		Request: &http.Request{
-			URL:    &url.URL{},
-			Header: make(http.Header),
-		},
-
+		url:        &url.URL{},
+		headers:    make(http.Header),
 		timeout:    time.Second,
 		httpClient: &http.Client{},
 	}
-	c.Request.Header.Set("User-Agent", defaultUserAgent)
+	c.headers.Set("User-Agent", defaultUserAgent)
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -70,11 +68,8 @@ func (c *Client) Derive(opts ...Option) *Client {
 	httpClient := *c.httpClient
 
 	derived := &Client{
-		Request: &http.Request{
-			URL:    c.Request.URL.ResolveReference(&url.URL{}),
-			Header: c.Request.Header.Clone(),
-		},
-
+		url:        c.url.ResolveReference(&url.URL{}),
+		headers:    c.headers.Clone(),
 		timeout:    c.timeout,
 		encoder:    c.encoder,
 		decoder:    c.decoder,
@@ -98,7 +93,7 @@ func BaseURL(base string) Option {
 		panic(err)
 	}
 	return func(c *Client) {
-		c.Request.URL = u
+		c.url = u
 	}
 }
 
@@ -151,7 +146,7 @@ func IntParam(k string, v int) URLModifier {
 
 func SetHeader(header, value string) Option {
 	return func(c *Client) {
-		c.Request.Header.Set(header, value)
+		c.headers.Set(header, value)
 	}
 }
 func Bearer(token string) Option {
@@ -201,7 +196,7 @@ func jsonDecoder(contentType string, r io.Reader, target interface{}) error {
 }
 
 func DontDecode(c *Client) {
-	c.Request.Header.Del("Accept")
+	c.headers.Del("Accept")
 	c.decoder = nil
 }
 
@@ -320,8 +315,8 @@ func (c *Client) buildRequest(method, target string, ums []URLModifier) (*http.R
 
 	req := &http.Request{
 		Method: method,
-		URL:    c.Request.URL.ResolveReference(targetURL),
-		Header: c.Request.Header.Clone(),
+		URL:    c.url.ResolveReference(targetURL),
+		Header: c.headers.Clone(),
 	}
 
 	for _, um := range ums {
